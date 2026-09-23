@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en-AU">
+<meta charset="utf-8">
+<title>Synthetic account form with documented defects</title>
+<form id="synthetic-account" aria-labelledby="account-heading">
+  <h1 id="account-heading">Create a synthetic test account</h1>
+  <label for="display-name">Display name</label>
+  <input id="display-name" name="displayName" required>
+  <input id="email" name="email" type="email" required autocomplete="email" aria-describedby="email-error">
+  <p id="email-error">Enter a test email address.</p>
+  <div>
+    <span>Contact preference</span>
+    <input id="contact-email" type="radio" name="contact"><label for="contact-email">Email</label>
+    <input id="contact-phone" type="radio" name="contact"><label for="contact-phone">Phone</label>
+  </div>
+  <button type="submit">Create test account</button>
+</form>

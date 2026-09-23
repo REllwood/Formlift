@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Inventory a supplied form and rehearse keyboard, validation and slow-submit journeys locally.">
+  <title>Formlift</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/src/styles.css">
+</head>
+<body>
+  <header class="masthead">
+    <div>
+      <p class="overline">Local form rehearsal</p>
+      <a href="#html-source">Formlift</a>
+    </div>
+    <p>Supply a test fixture deliberately. This prototype does not inspect arbitrary tabs or intercept production forms.</p>
+    <button id="data-boundary-button" type="button">Data boundary</button>
+  </header>
+
+  <main>
+    <aside class="control-room" aria-labelledby="source-title">
+      <p class="stage">Stage 1</p>
+      <h1 id="source-title">Select the form source</h1>
+      <label for="html-source">Form HTML</label>
+      <textarea id="html-source" rows="12" spellcheck="false" placeholder="<form>…</form>"></textarea>
+      <div class="source-actions">
+        <button id="scan-button" class="primary" type="button">Scan supplied form</button>
+        <button id="fixture-button" type="button">Load defect fixture</button>
+      </div>
+      <label for="html-file">Choose local HTML fixture</label>
+      <input id="html-file" type="file" accept="text/html,.html,.htm">
+      <div id="job-status" class="job-status" role="status">No form scanned.</div>
+      <button id="cancel-job" type="button" hidden>Stop current work</button>
+
+      <section id="scenario-controls" hidden>
+        <p class="stage">Stage 2</p>
+        <h2>Choose a rehearsal</h2>
+        <label for="scenario-select">Scenario</label>
+        <select id="scenario-select"></select>
+        <button id="start-scenario" class="primary" type="button">Prepare rehearsal</button>
+        <button id="stop-scenario" type="button" hidden>Stop and clear rehearsal entries</button>
+      </section>
+    </aside>
+
+    <section class="workspace">
+      <div id="empty-state" class="empty-state">
+        <p class="stage">Evidence begins with explicit activation</p>
+        <h2>Static checks meet a human journey.</h2>
+        <p>Scan a synthetic or local test form. Formlift will separate structural findings from what you observe while rehearsing completion.</p>
+      </div>
+
+      <div id="project" hidden>
+        <section class="inventory-strip" aria-labelledby="inventory-title">
+          <div>
+            <p class="stage">Supplied structure</p>
+            <h2 id="inventory-title">Control inventory</h2>
+          </div>
+          <p id="inventory-summary"></p>
+          <button id="report-button" type="button">Review report</button>
+        </section>
+
+        <div class="project-grid">
+          <section class="rehearsal" aria-labelledby="rehearsal-title">
+            <div class="section-heading">
+              <div><p class="stage">Safe reconstruction</p><h2 id="rehearsal-title">Rehearsal surface</h2></div>
+              <span>Real values are not required</span>
+            </div>
+            <p class="surface-disclosure">Controls are reconstructed from structural metadata. Imported scripts, actions, styles, resources and default values are not used.</p>
+            <form id="rehearsal-form" novalidate></form>
+            <div id="scenario-coach" class="scenario-coach" hidden></div>
+          </section>
+
+          <aside class="evidence" aria-labelledby="findings-title">
+            <div class="section-heading">
+              <div><p class="stage">Rule evidence</p><h2 id="findings-title">Findings and timeline</h2></div>
+            </div>
+            <div id="findings"></div>
+            <section class="timeline" aria-labelledby="timeline-title">
+              <h3 id="timeline-title">Journey timeline</h3>
+              <ol id="timeline"></ol>
+            </section>
+            <section class="notes" aria-labelledby="notes-title">
+              <h3 id="notes-title">Human observations</h3>
+              <form id="note-form">
+                <label for="note-input">Observation without customer data or entered field text</label>
+                <textarea id="note-input" maxlength="1000" rows="3"></textarea>
+                <button type="submit">Add observation</button>
+              </form>
+              <ol id="note-list"></ol>
+            </section>
+          </aside>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="report-dialog">
+    <form method="dialog"><button class="dialog-close" value="close">Close</button></form>
+    <div id="dialog-job-status" class="job-status" role="status" hidden></div>
+    <button id="dialog-cancel-job" type="button" hidden>Stop current work</button>
+    <div id="report-content"></div>
+  </dialog>
+  <script type="module" src="/src/app.js"></script>
+</body>
+</html>

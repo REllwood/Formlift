@@ -1,0 +1,12 @@
+node_modules/
+.DS_Store
+coverage/
+*.log
+
+# local-only planning and tooling
+/docs/
+.claude/
+.agents/
+.forge/
+.planning/
+.preview/

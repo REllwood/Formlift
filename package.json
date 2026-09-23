@@ -1,0 +1,24 @@
+{
+  "name": "formlift",
+  "version": "0.1.0",
+  "description": "Rehearse a web form as a user journey, then fix the moments that block completion.",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/REllwood/Formlift.git"
+  },
+  "homepage": "https://github.com/REllwood/Formlift#readme",
+  "bugs": {
+    "url": "https://github.com/REllwood/Formlift/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test",
+    "check": "node scripts/check.mjs"
+  }
+}
