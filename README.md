@@ -39,8 +39,16 @@ v0.1 works on form HTML you paste in. It doesn't inspect a live tab or intercept
 ## Development
 
 ```sh
-npm test        # inventory, findings and privacy tests
+npm test        # core, server and browser tests
 npm run check   # tests plus syntax checks
+```
+
+The browser tests drive the app in Chromium through [Playwright](https://playwright.dev). Playwright isn't a dependency, so the browser tests are skipped when it isn't installed. To run them:
+
+```sh
+npm install --no-save playwright
+npx playwright install chromium
+npm test
 ```
 
 ## License
