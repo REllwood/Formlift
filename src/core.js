@@ -75,8 +75,15 @@ export function checkInventory(value) {
         'accessible-name',
         control,
         'A keyboard or screen-reader user may not know what this control requests.',
-        `${control.sourceRef} has no accessible name from a label, ARIA reference or button text.`,
+        `${control.sourceRef} has no accessible name from a label, ARIA reference, button text or alternative text.`,
         'high'
+      ));
+    } else if (['title', 'placeholder'].includes(control.nameSource)) {
+      findings.push(finding(
+        'visible-label',
+        control,
+        'A placeholder or tooltip disappears while someone types or may never be shown, so the question is easy to lose.',
+        `${control.sourceRef} is named only by its ${control.nameSource} attribute.`
       ));
     }
     if (control.required && control.describedBy.length === 0) {

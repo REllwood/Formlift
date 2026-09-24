@@ -50,7 +50,8 @@ async function scan(page, html) {
       ref: field.dataset.controlRef,
       tag: field.tagName.toLowerCase(),
       type: field.type,
-      label: field.labels?.[0]?.textContent ?? field.textContent
+      label: field.labels?.[0]?.textContent ?? field.textContent,
+      note: field.closest('.rehearsal-field')?.querySelector('.source-ref')?.textContent ?? ''
     }))
   }));
 }
@@ -261,6 +262,55 @@ describe('browser app', { skip }, () => {
       assert.match(await page.textContent('#job-status'), /^Rehearsal stopped\. Timers and instrumentation were removed/u);
       await page.close();
     });
+  });
+
+  test('accessible names follow the browser naming order', async () => {
+    const { page, problems } = await openApp();
+    const result = await scan(page, `<label for="outside">Outside label</label>
+      <form>
+        <input id="outside" autocomplete="off">
+        <span id="heading">Referenced name</span>
+        <input id="both" aria-label="Ignored label" aria-labelledby="heading" autocomplete="off">
+        <label for="starred">Email <span aria-hidden="true">*</span></label><input id="starred" type="email" autocomplete="email">
+        <label>Wrapped <input id="wrapped" autocomplete="off"></label>
+        <input id="send" type="submit" value="Send">
+        <input id="default-submit" type="submit">
+        <input id="reset" type="reset">
+        <input id="map" type="image" alt="Search map" src="map.png">
+        <input id="bare-image" type="image" src="map.png">
+        <button id="icon" type="button"><img src="close.png" alt="Close"></button>
+        <input id="placeholder-only" placeholder="Postcode" autocomplete="postal-code">
+        <select id="title-only" title="Country"><option>Australia</option></select>
+      </form>`);
+    const names = Object.fromEntries(result.fields.filter(({ ref }) => ref !== '#bare-image').map(({ ref, label }) => [ref, label]));
+    assert.deepEqual(names, {
+      '#outside': 'Outside label',
+      '#both': 'Referenced name',
+      '#starred': 'Email',
+      '#wrapped': 'Wrapped',
+      '#send': 'Send',
+      '#default-submit': 'Submit',
+      '#reset': 'Reset',
+      '#map': 'Search map',
+      '#icon': 'Close',
+      '#placeholder-only': 'Postcode',
+      '#title-only': 'Country'
+    });
+    const sources = Object.fromEntries(result.fields.map(({ ref, note }) => [ref, /name from ([^;]+)/u.exec(note)?.[1] ?? '']));
+    assert.equal(sources['#outside'], 'label[for]');
+    assert.equal(sources['#both'], 'aria-labelledby');
+    assert.equal(sources['#wrapped'], 'wrapping label');
+    assert.equal(sources['#send'], 'value');
+    assert.equal(sources['#default-submit'], 'default button text');
+    assert.equal(sources['#map'], 'alt');
+    assert.equal(sources['#placeholder-only'], 'placeholder');
+    assert.deepEqual(result.findings.filter((heading) => /^(accessible-name|visible-label) /u.test(heading)), [
+      'accessible-name at #bare-image',
+      'visible-label at #placeholder-only',
+      'visible-label at #title-only'
+    ]);
+    assert.deepEqual(problems, []);
+    await page.close();
   });
 
   test('reports download as Markdown and JSON', async () => {

@@ -48,6 +48,17 @@ test('focused checks produce evidence-backed accessible-name, error and progress
   assert.equal(findings.every(({ origin, consequence, evidence }) => origin === 'automated' && Boolean(consequence) && Boolean(evidence)), true);
 });
 
+test('controls named only by a placeholder or title get a visible-label finding instead of accessible-name', () => {
+  const findings = checkInventory({
+    controls: [
+      { sourceRef: '#postcode', type: 'text', accessibleName: 'Postcode', nameSource: 'placeholder', autocomplete: 'postal-code' },
+      { sourceRef: '#country', type: 'select', accessibleName: 'Country', nameSource: 'title' },
+      { sourceRef: '#suburb', type: 'text', accessibleName: 'Suburb', nameSource: 'label[for]', autocomplete: 'address-level2' }
+    ]
+  });
+  assert.deepEqual(findings.map(({ ruleId, sourceRef }) => `${ruleId} ${sourceRef}`), ['visible-label #postcode', 'visible-label #country']);
+});
+
 test('scenario evidence records entry state as booleans without entered text', () => {
   let session = createSession('validation', inventory, '2026-07-24T00:00:00Z');
   session = recordEvidence(session, { kind: 'validation', controlRef: '#email', outcome: 'Invalid email format.', hasEntry: true, enteredText: 'person@example.test' });
