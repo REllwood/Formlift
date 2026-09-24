@@ -204,6 +204,65 @@ describe('browser app', { skip }, () => {
     await page.close();
   });
 
+  describe('actions taken during the slow-submit delay', () => {
+    const form = '<form><label for="a">A</label><input id="a" autocomplete="off"><button type="submit">Go</button></form>';
+
+    async function startDelay() {
+      const opened = await openApp();
+      await scan(opened.page, form);
+      await prepare(opened.page, 'slow-submit');
+      await opened.page.fill('[data-control-ref="#a"]', 'Synthetic');
+      await opened.page.click('text=Begin disclosed three-second delay');
+      await opened.page.waitForTimeout(300);
+      return opened;
+    }
+
+    test('preparing another rehearsal succeeds', async () => {
+      const { page, problems } = await startDelay();
+      await prepare(page, 'keyboard');
+      await page.waitForTimeout(3200);
+      assert.equal(await page.textContent('#scenario-coach h3'), 'Keyboard path');
+      assert.equal(await page.isVisible('#stop-scenario'), true);
+      assert.equal(await page.textContent('#job-status'), 'preparing Keyboard path rehearsal complete.');
+      assert.equal((await timeline(page)).some((entry) => entry.includes('Injected delay ended')), false);
+      assert.deepEqual(problems, []);
+      await page.close();
+    });
+
+    test('rescanning succeeds', async () => {
+      const { page } = await startDelay();
+      const result = await scan(page, '<form><label for="z">Z</label><input id="z" autocomplete="off"><label for="y">Y</label><input id="y" autocomplete="off"></form>');
+      assert.match(result.summary, /^2 controls/u);
+      assert.match(result.status, /^Inventory complete: 2 supported controls/u);
+      await page.close();
+    });
+
+    test('opening the report succeeds and shows the stopped rehearsal', async () => {
+      const { page } = await startDelay();
+      await page.click('#report-button');
+      await page.waitForSelector('#report-dialog[open]');
+      assert.match(await page.textContent('.report-preview'), /Status: stopped with incomplete evidence/u);
+      await page.close();
+    });
+
+    test('Stop current work ends the rehearsal and clears entries', async () => {
+      const { page } = await startDelay();
+      await page.click('#cancel-job');
+      await page.waitForSelector('#scenario-coach', { state: 'hidden' });
+      assert.equal(await page.textContent('#job-status'), 'simulating slow submit on the local reconstruction stopped. Rehearsal entries were cleared.');
+      assert.equal(await page.inputValue('[data-control-ref="#a"]'), '');
+      await page.close();
+    });
+
+    test('Stop and clear keeps its own status message', async () => {
+      const { page } = await startDelay();
+      await page.click('#stop-scenario');
+      await page.waitForTimeout(100);
+      assert.match(await page.textContent('#job-status'), /^Rehearsal stopped\. Timers and instrumentation were removed/u);
+      await page.close();
+    });
+  });
+
   test('reports download as Markdown and JSON', async () => {
     const { page } = await openApp();
     await page.click('#fixture-button');
