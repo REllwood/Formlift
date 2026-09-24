@@ -30,6 +30,17 @@ test('inventory validation bounds controls and keeps structural metadata only', 
   assert.throws(() => validateInventory({ controls: [] }), /no supported controls/i);
 });
 
+test('standard input types are kept and unknown ones become text', () => {
+  const types = ['range', 'color', 'time', 'datetime-local', 'month', 'week', 'image', 'search', 'made-up'];
+  const result = validateInventory({ controls: types.map((type, index) => ({ sourceRef: `#c${index}`, type })) });
+  assert.deepEqual(result.controls.map(({ type }) => type), [...types.slice(0, -1), 'text']);
+});
+
+test('an image input counts as the submit control for submit-progress', () => {
+  const findings = checkInventory({ controls: [{ sourceRef: '#go', element: 'input', type: 'image', accessibleName: 'Go' }] });
+  assert.deepEqual(findings.map(({ ruleId, sourceRef }) => `${ruleId} ${sourceRef}`), ['submit-progress #go']);
+});
+
 test('select labels are retained without option values or selected state', () => {
   const supplied = structuredClone(inventory);
   supplied.controls.push({ sourceRef: '#country', element: 'select', type: 'select', accessibleName: 'Country', options: ['Australia', 'New Zealand'], value: 'private-value', selectedIndex: 1 });
