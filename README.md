@@ -18,6 +18,7 @@ Forms lose people in small ways: a field with no label, an error message a scree
 - Rebuilds the form as a safe local copy to rehearse on
 - Guides keyboard, error-recovery and optional slow-submit runs
 - Records whether values were present or kept, never the values themselves
+- Keeps your observation notes per form in the browser, where you can delete them
 - Exports a Markdown or JSON report with the evidence
 
 ## Quick start

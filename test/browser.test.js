@@ -357,6 +357,66 @@ describe('browser app', { skip }, () => {
     await page.close();
   });
 
+  describe('human observations', () => {
+    const formA = '<form id="form-a" aria-label="Form A"><label for="a">A</label><input id="a" autocomplete="off"></form>';
+    const formB = '<form id="form-b" aria-label="Form B"><label for="b">B</label><input id="b" autocomplete="off"></form>';
+    const notesOf = (page) => page.$$eval('#note-list li span', (items) => items.map((item) => item.textContent));
+
+    async function addNote(page, text) {
+      await page.fill('#note-input', text);
+      await page.click('#note-form button[type="submit"]');
+    }
+
+    test('belong to the form they were written for and survive a reload', async () => {
+      const { page } = await openApp();
+      await scan(page, formA);
+      await addNote(page, 'Observation about form A');
+      await page.reload();
+      await scan(page, formB);
+      assert.deepEqual(await notesOf(page), []);
+      await page.click('#report-button');
+      await page.waitForSelector('#report-dialog[open]');
+      assert.match(await page.textContent('.report-preview'), /No human observations recorded/u);
+      await page.click('.dialog-close');
+      await scan(page, formA);
+      assert.deepEqual(await notesOf(page), ['Observation about form A']);
+      await page.close();
+    });
+
+    test('can be deleted one at a time or cleared after confirmation', async () => {
+      const { page } = await openApp();
+      await scan(page, formA);
+      for (const text of ['First', 'Second', 'Third']) await addNote(page, text);
+      await page.click('button[aria-label="Delete observation 2"]');
+      assert.deepEqual(await notesOf(page), ['First', 'Third']);
+      assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), 'Delete observation 2');
+      await page.reload();
+      await scan(page, formA);
+      assert.deepEqual(await notesOf(page), ['First', 'Third']);
+      page.once('dialog', (dialog) => dialog.dismiss());
+      await page.click('#clear-notes');
+      assert.deepEqual(await notesOf(page), ['First', 'Third']);
+      page.once('dialog', (dialog) => dialog.accept());
+      await page.click('#clear-notes');
+      assert.deepEqual(await notesOf(page), []);
+      assert.equal(await page.isVisible('#clear-notes'), false);
+      assert.equal(await page.evaluate(() => Object.keys(localStorage).length), 0);
+      await page.close();
+    });
+
+    test('notes from version 0.1 move to the first form scanned', async () => {
+      const { page } = await openApp();
+      await page.evaluate(() => localStorage.setItem('formlift:notes:v0.1', JSON.stringify(['Older shared note'])));
+      await page.reload();
+      await scan(page, formA);
+      assert.deepEqual(await notesOf(page), ['Older shared note']);
+      assert.equal(await page.evaluate(() => localStorage.getItem('formlift:notes:v0.1')), null);
+      await scan(page, formB);
+      assert.deepEqual(await notesOf(page), []);
+      await page.close();
+    });
+  });
+
   test('reports download as Markdown and JSON', async () => {
     const { page } = await openApp();
     await page.click('#fixture-button');

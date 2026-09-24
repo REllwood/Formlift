@@ -8,7 +8,8 @@ import {
   validateInventory
 } from './core.js';
 
-const noteStorageKey = 'formlift:notes:v0.1';
+const legacyNoteStorageKey = 'formlift:notes:v0.1';
+const maximumNotes = 100;
 const fixture = `<form id="synthetic-account" aria-labelledby="account-heading">
   <h2 id="account-heading">Create a synthetic test account</h2>
   <label for="display-name">Display name</label>
@@ -45,6 +46,7 @@ const elements = {
   noteForm: document.querySelector('#note-form'),
   noteInput: document.querySelector('#note-input'),
   noteList: document.querySelector('#note-list'),
+  clearNotes: document.querySelector('#clear-notes'),
   dialog: document.querySelector('#report-dialog'),
   reportContent: document.querySelector('#report-content')
 };
@@ -53,6 +55,7 @@ let inventory = null;
 let findings = [];
 let sessions = [];
 let notes = [];
+let noteStorageKey = null;
 let activeSession = null;
 let activeController = null;
 let focusIndex = -1;
@@ -332,23 +335,70 @@ function renderTimeline() {
   }
 }
 
-function loadNotes() {
+function readStoredNotes(key) {
   try {
-    const parsed = JSON.parse(localStorage.getItem(noteStorageKey) ?? '[]');
-    notes = Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string').map((item) => item.slice(0, 1000)).slice(0, 100) : [];
+    const parsed = JSON.parse(localStorage.getItem(key) ?? '[]');
+    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string').map((item) => item.slice(0, 1000)).slice(0, maximumNotes) : [];
   } catch {
-    notes = [];
+    return [];
+  }
+}
+
+function saveNotes() {
+  try {
+    if (notes.length) localStorage.setItem(noteStorageKey, JSON.stringify(notes));
+    else localStorage.removeItem(noteStorageKey);
+    return true;
+  } catch (error) {
+    setStatus(`Observations remain in this page but saving them locally failed: ${error.message}`);
+    return false;
+  }
+}
+
+// Notes belong to one form, keyed by its reference and title, so they never appear in another form's report.
+function loadNotes() {
+  noteStorageKey = `formlift:notes:v1:${inventory.formReference}|${inventory.title}`;
+  notes = readStoredNotes(noteStorageKey);
+  // Version 0.1 shared one list across every form; move it to the first form scanned after upgrading.
+  const legacy = readStoredNotes(legacyNoteStorageKey);
+  if (legacy.length) {
+    notes = [...notes, ...legacy].slice(0, maximumNotes);
+    if (saveNotes()) {
+      try {
+        localStorage.removeItem(legacyNoteStorageKey);
+      } catch {
+        // The legacy list stays until storage is writable again.
+      }
+    }
   }
   renderNotes();
 }
 
 function renderNotes() {
   elements.noteList.replaceChildren();
-  notes.forEach((note) => {
+  notes.forEach((note, index) => {
     const item = document.createElement('li');
-    item.textContent = note;
+    const text = document.createElement('span');
+    text.textContent = note;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'note-delete';
+    remove.textContent = 'Delete';
+    remove.setAttribute('aria-label', `Delete observation ${index + 1}`);
+    remove.addEventListener('click', () => deleteNote(index));
+    item.append(text, remove);
     elements.noteList.append(item);
   });
+  elements.clearNotes.hidden = notes.length === 0;
+}
+
+function deleteNote(index) {
+  notes = notes.filter((_, position) => position !== index);
+  const saved = saveNotes();
+  renderNotes();
+  const buttons = elements.noteList.querySelectorAll('.note-delete');
+  (buttons[Math.min(index, buttons.length - 1)] ?? elements.noteInput).focus();
+  if (saved) setStatus('Observation deleted.');
 }
 
 // Checkbox and radio inputs report value "on" even when unchecked, so entry state depends on the control type.
@@ -543,6 +593,7 @@ function renderProject() {
   renderForm();
   renderFindings();
   renderTimeline();
+  loadNotes();
 }
 
 async function scan() {
@@ -643,15 +694,22 @@ elements.noteForm.addEventListener('submit', (event) => {
   event.preventDefault();
   const note = elements.noteInput.value.trim().slice(0, 1000);
   if (!note) return;
-  notes.push(note);
-  elements.noteInput.value = '';
-  try {
-    localStorage.setItem(noteStorageKey, JSON.stringify(notes));
-    setStatus('Human observation stored locally. Do not include customer data or entered field text.');
-  } catch (error) {
-    setStatus(`Observation remains in this page but local save failed: ${error.message}`);
+  if (notes.length >= maximumNotes) {
+    setStatus(`This form already has ${maximumNotes} observations. Delete one before adding another.`);
+    return;
   }
+  notes = [...notes, note];
+  elements.noteInput.value = '';
+  if (saveNotes()) setStatus('Human observation stored locally for this form. Do not include customer data or entered field text.');
   renderNotes();
+});
+elements.clearNotes.addEventListener('click', () => {
+  if (!window.confirm('Delete every observation for this form? This cannot be undone.')) return;
+  notes = [];
+  const saved = saveNotes();
+  renderNotes();
+  elements.noteInput.focus();
+  if (saved) setStatus('All observations for this form were deleted.');
 });
 document.querySelector('#report-button').addEventListener('click', report);
 document.querySelector('#data-boundary-button').addEventListener('click', () => {
@@ -659,9 +717,8 @@ document.querySelector('#data-boundary-button').addEventListener('click', () => 
   const heading = document.createElement('h2');
   heading.textContent = 'Data boundary';
   const text = document.createElement('p');
-  text.textContent = 'This prototype parses only HTML you explicitly supply. It discards scripts, actions, remote resources, styles and default entries when reconstructing controls. Rehearsal entries stay only in live controls, are recorded as presence or retention booleans, and are cleared when a scenario stops. Only authored observation notes persist locally.';
+  text.textContent = 'This prototype parses only HTML you explicitly supply. It discards scripts, actions, remote resources, styles and default entries when reconstructing controls. Rehearsal entries stay only in live controls, are recorded as presence or retention booleans, and are cleared when a scenario stops. Only authored observation notes persist locally, stored per form, and you can delete them at any time.';
   elements.reportContent.append(heading, text);
   elements.dialog.showModal();
 });
 
-loadNotes();
