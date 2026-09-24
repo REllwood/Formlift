@@ -188,8 +188,10 @@ function extractInventory(html) {
     const { name: accessibleName, source: nameSource } = accessibleNameOf(control, parsed, tag, rawType);
     const describedIds = idList(control.getAttribute('aria-describedby'));
     warnMissingReferences(sourceRef, 'aria-labelledby', idList(control.getAttribute('aria-labelledby')));
+    const errorMessageIds = idList(control.getAttribute('aria-errormessage'));
     warnMissingReferences(sourceRef, 'aria-describedby', describedIds);
-    const describedNodes = describedIds.map((reference) => parsed.getElementById(reference)).filter(Boolean);
+    warnMissingReferences(sourceRef, 'aria-errormessage', errorMessageIds);
+    const describedNodes = [...describedIds, ...errorMessageIds].map((reference) => parsed.getElementById(reference)).filter(Boolean);
     const group = control.closest('fieldset, [role="radiogroup"]');
     const groupLabel = group
       ? referencedText(parsed, idList(group.getAttribute('aria-labelledby'))) || attributeText(group, 'aria-label') || controlFreeText(group.querySelector(':scope > legend'))
@@ -204,8 +206,9 @@ function extractInventory(html) {
       disabled: control.hasAttribute('disabled'),
       autocomplete: control.getAttribute('autocomplete') || '',
       describedBy: describedIds,
+      errorMessage: errorMessageIds,
       errorTextPresent: describedNodes.some((node) => Boolean(node.textContent?.trim())),
-      errorAnnounced: describedNodes.some((node) => node.getAttribute('role') === 'alert' || Boolean(node.closest('[aria-live]')) || Boolean(node.getAttribute('aria-live'))),
+      errorAnnounced: describedNodes.some((node) => Boolean(node.closest('[role="alert"], [role="status"], [role="log"], [aria-live]:not([aria-live="off"])'))),
       groupName: control.getAttribute('name') || '',
       groupLabel,
       sensitive: rawType === 'password' || /card|payment|cvv|cvc/iu.test(`${control.getAttribute('name') || ''} ${id}`),
