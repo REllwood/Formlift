@@ -22,27 +22,40 @@ const publicFiles = new Map([
   ['/src/core.js', resolve(root, 'src/core.js')],
   ['/src/styles.css', resolve(root, 'src/styles.css')]
 ]);
+const baseHeaders = {
+  'Cache-Control': 'no-store',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer'
+};
+
+function sendText(response, status, message) {
+  response.writeHead(status, { ...baseHeaders, 'Content-Type': 'text/plain; charset=utf-8' });
+  response.end(message);
+}
 
 const server = createServer(async (request, response) => {
   try {
     const pathname = decodeURIComponent(new URL(request.url ?? '/', `http://${host}`).pathname);
     const target = publicFiles.get(pathname);
     if (!target) {
-      response.writeHead(404).end('Not found');
+      sendText(response, 404, 'Not found');
       return;
     }
+    // Read before writing headers so a missing or unreadable file can still get an error status.
+    const body = await readFile(target);
     response.writeHead(200, {
+      ...baseHeaders,
       'Content-Type': types.get(extname(target)) ?? 'application/octet-stream',
-      'Cache-Control': 'no-store',
-      'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'",
-      'X-Content-Type-Options': 'nosniff',
-      'Referrer-Policy': 'no-referrer'
+      'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
     });
-    response.end(await readFile(target));
+    response.end(body);
   } catch (error) {
+    if (response.headersSent) {
+      response.destroy();
+      return;
+    }
     const missing = error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT';
-    response.writeHead(missing ? 404 : 400, { 'Content-Type': 'text/plain; charset=utf-8' });
-    response.end(missing ? 'Not found' : 'Invalid request');
+    sendText(response, missing ? 404 : 400, missing ? 'Not found' : 'Invalid request');
   }
 });
 
