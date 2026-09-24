@@ -77,6 +77,8 @@ main { display: grid; grid-template-columns: minmax(19rem, 24rem) 1fr; min-heigh
 .timeline ol, .notes ol { padding-left: 1.3rem; }
 .timeline li, .notes li { margin: .5rem 0; font-size: .76rem; line-height: 1.45; }
 .notes textarea { resize: vertical; }
+.notes li span { overflow-wrap: anywhere; }
+.note-delete { margin-left: .5rem; padding: .15rem .45rem; font-size: .7rem; }
 dialog { width: min(55rem, calc(100% - 2rem)); max-height: calc(100vh - 2rem); overflow: auto; border: 1px solid var(--ink); background: var(--paper); color: var(--ink); padding: 1.5rem; }
 dialog::backdrop { background: rgba(20,35,58,.58); }
 .dialog-close { float: right; }
