@@ -77,7 +77,8 @@ async function runJob(label, work) {
     setStatus(`${label} complete.`);
     return value;
   } catch (error) {
-    setStatus(error.name === 'AbortError' ? `${label} stopped. Rehearsal entries were cleared.` : `${label} failed: ${error.message}`);
+    // A job replaced by newer work stays quiet so it cannot overwrite the newer job's status.
+    if (activeController === controller) setStatus(error.name === 'AbortError' ? `${label} stopped. Rehearsal entries were cleared.` : `${label} failed: ${error.message}`);
     return null;
   } finally {
     if (activeController === controller) activeController = null;
@@ -86,6 +87,10 @@ async function runJob(label, work) {
 
 function wait(milliseconds, signal, progress) {
   return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException('Stopped', 'AbortError'));
+      return;
+    }
     const started = performance.now();
     const interval = window.setInterval(() => progress(Math.min(1, (performance.now() - started) / milliseconds)), 100);
     const timer = window.setTimeout(() => {
@@ -355,8 +360,15 @@ function clearEntries() {
   }
 }
 
+// Stops any running job, then ends the rehearsal.
 function finishActive(incomplete) {
   activeController?.abort();
+  activeController = null;
+  endSession(incomplete);
+}
+
+// Ends the rehearsal without touching jobs, for callers whose own job has already settled.
+function endSession(incomplete) {
   if (activeSession) {
     activeSession = finishSession(activeSession, incomplete);
     sessions = [...sessions.filter(({ id }) => id !== activeSession.id), activeSession];
@@ -459,6 +471,7 @@ async function slowSubmitCoach() {
   run.textContent = 'Begin disclosed three-second delay';
   run.addEventListener('click', async () => {
     run.disabled = true;
+    const sessionId = activeSession.id;
     const submit = elements.form.querySelector('[type="submit"]');
     const hadEntries = new Map(entryFields().map((field) => [field.dataset.controlRef, hasEntry(field)]));
     const completed = await runJob('simulating slow submit on the local reconstruction', async (signal) => {
@@ -473,14 +486,13 @@ async function slowSubmitCoach() {
       }
       return true;
     });
+    // Another action may have ended this rehearsal while the delay ran; leave its work alone.
+    if (activeSession?.id !== sessionId) return;
     if (completed) {
       record({ kind: 'submit', controlRef: submit?.dataset.controlRef, outcome: 'Injected delay ended and local instrumentation was removed.' });
-      finishActive(false);
+      endSession(false);
       setStatus('Slow-submit rehearsal complete. All rehearsal entries were cleared after evidence capture.');
-    } else {
-      finishActive(true);
-      run.disabled = false;
-    }
+    } else endSession(true);
   });
   actions.append(optionLabel, progress, run);
 }
