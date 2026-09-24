@@ -417,6 +417,26 @@ describe('browser app', { skip }, () => {
     });
   });
 
+  test('source warnings are listed with their text', async () => {
+    const { page } = await openApp();
+    const result = await scan(page, `<form id="first"><label for="dup">Name</label><input id="dup" autocomplete="name" aria-describedby="gone"></form>
+      <form><input id="dup"></form>`);
+    assert.equal(result.summary, '1 control · 0 focused automated findings · 3 source warnings');
+    assert.match(result.status, /^Inventory complete: 1 supported control\./u);
+    assert.deepEqual(await page.$$eval('#warning-list li', (items) => items.map((item) => item.textContent)), [
+      '2 forms were found; this prototype inventories the first form only.',
+      '#dup refers to aria-describedby id "gone", which isn\'t in the supplied HTML.',
+      'The id "dup" is used 2 times, so labels and ARIA references to it can point at the wrong element.'
+    ]);
+    await page.click('#report-button');
+    await page.waitForSelector('#report-dialog[open]');
+    assert.match(await page.textContent('.report-preview'), /### Source warnings/u);
+    await page.click('.dialog-close');
+    await scan(page, '<form><label for="a">A</label><input id="a" autocomplete="off"></form>');
+    assert.equal(await page.isVisible('#source-warnings'), false);
+    await page.close();
+  });
+
   test('reports download as Markdown and JSON', async () => {
     const { page } = await openApp();
     await page.click('#fixture-button');

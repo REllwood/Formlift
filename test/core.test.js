@@ -91,6 +91,14 @@ test('reports separate automated findings, instrumented evidence and limitations
   assert.match(markdown, /Error summary did not receive focus/);
 });
 
+test('reports list source warnings in JSON and Markdown', () => {
+  const warned = { ...structuredClone(inventory), sourceWarnings: ['2 forms were found; this prototype inventories the first form only.'] };
+  const json = JSON.parse(buildReport({ inventory: warned, sessions: [], notes: [] }, 'json'));
+  assert.deepEqual(json.inventory.sourceWarnings, warned.sourceWarnings);
+  assert.match(buildReport({ inventory: warned, sessions: [], notes: [] }, 'markdown'), /### Source warnings\n\n- 2 forms were found/u);
+  assert.doesNotMatch(buildReport({ inventory, sessions: [], notes: [] }, 'markdown'), /Source warnings/u);
+});
+
 test('JSON reports omit default and entered form values', () => {
   const report = buildReport({ inventory, sessions: [], notes: [] }, 'json');
   assert.doesNotMatch(report, /defaultEntryPresent/);

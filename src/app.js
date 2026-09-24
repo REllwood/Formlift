@@ -39,6 +39,8 @@ const elements = {
   scenarioSelect: document.querySelector('#scenario-select'),
   stopScenario: document.querySelector('#stop-scenario'),
   inventorySummary: document.querySelector('#inventory-summary'),
+  warnings: document.querySelector('#source-warnings'),
+  warningList: document.querySelector('#warning-list'),
   form: document.querySelector('#rehearsal-form'),
   coach: document.querySelector('#scenario-coach'),
   findings: document.querySelector('#findings'),
@@ -172,6 +174,9 @@ function extractInventory(html) {
   if (forms.length === 0) throw new RangeError('No form element was found in the supplied HTML.');
   const form = forms[0];
   const sourceWarnings = forms.length > 1 ? [`${forms.length} forms were found; this prototype inventories the first form only.`] : [];
+  const warnMissingReferences = (sourceRef, attribute, references) => references
+    .filter((reference) => !parsed.getElementById(reference))
+    .forEach((reference) => sourceWarnings.push(`${sourceRef} refers to ${attribute} id "${reference}", which isn't in the supplied HTML.`));
   // control.form includes controls placed outside the form with a form attribute, and excludes ones owned by another form.
   const owned = [...parsed.querySelectorAll('input, select, textarea, button')].filter((control) => control.form === form);
   const controls = owned.map((control, index) => {
@@ -182,6 +187,8 @@ function extractInventory(html) {
     const sourceRef = id ? `#${id}` : `${tag}:nth-control(${index + 1})`;
     const { name: accessibleName, source: nameSource } = accessibleNameOf(control, parsed, tag, rawType);
     const describedIds = idList(control.getAttribute('aria-describedby'));
+    warnMissingReferences(sourceRef, 'aria-labelledby', idList(control.getAttribute('aria-labelledby')));
+    warnMissingReferences(sourceRef, 'aria-describedby', describedIds);
     const describedNodes = describedIds.map((reference) => parsed.getElementById(reference)).filter(Boolean);
     const group = control.closest('fieldset, [role="radiogroup"]');
     const groupLabel = group
@@ -206,6 +213,11 @@ function extractInventory(html) {
       options: tag === 'select' ? [...control.querySelectorAll('option')].map((option) => controlFreeText(option)).filter(Boolean) : []
     };
   });
+  const idCounts = new Map();
+  for (const element of parsed.querySelectorAll('[id]')) idCounts.set(element.id, (idCounts.get(element.id) ?? 0) + 1);
+  for (const [id, count] of idCounts) {
+    if (count > 1) sourceWarnings.push(`The id "${id}" is used ${count} times, so labels and ARIA references to it can point at the wrong element.`);
+  }
   return validateInventory({
     formReference: form.id ? `#${form.id}` : 'form:nth-of-type(1)',
     title: referencedText(parsed, idList(form.getAttribute('aria-labelledby'))) || attributeText(form, 'aria-label'),
@@ -214,6 +226,20 @@ function extractInventory(html) {
     hasProgressText: [...form.querySelectorAll('button, p, div, span')].some((node) => /submitting|loading|please wait|in progress/iu.test(node.textContent || '')),
     sourceWarnings
   });
+}
+
+function plural(count, singular, pluralForm = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : pluralForm}`;
+}
+
+function renderWarnings() {
+  elements.warningList.replaceChildren();
+  for (const warning of inventory.sourceWarnings) {
+    const item = document.createElement('li');
+    item.textContent = warning;
+    elements.warningList.append(item);
+  }
+  elements.warnings.hidden = inventory.sourceWarnings.length === 0;
 }
 
 function renderFindings() {
@@ -589,8 +615,9 @@ function renderProject() {
   elements.empty.hidden = true;
   elements.project.hidden = false;
   elements.scenarioControls.hidden = false;
-  elements.inventorySummary.textContent = `${inventory.controls.length} controls · ${findings.length} focused automated findings · ${inventory.sourceWarnings.length} source warnings`;
+  elements.inventorySummary.textContent = `${plural(inventory.controls.length, 'control')} · ${plural(findings.length, 'focused automated finding')} · ${plural(inventory.sourceWarnings.length, 'source warning')}`;
   renderForm();
+  renderWarnings();
   renderFindings();
   renderTimeline();
   loadNotes();
@@ -605,7 +632,7 @@ async function scan() {
   if (!result) return;
   inventory = result;
   renderProject();
-  setStatus(`Inventory complete: ${inventory.controls.length} supported controls. Imported actions, scripts, resources, styles and default entries were discarded.`);
+  setStatus(`Inventory complete: ${plural(inventory.controls.length, 'supported control')}. Imported actions, scripts, resources, styles and default entries were discarded.`);
 }
 
 function download(content, extension, type) {
