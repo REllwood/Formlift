@@ -113,6 +113,25 @@ test('reports list source warnings in JSON and Markdown', () => {
   assert.doesNotMatch(buildReport({ inventory, sessions: [], notes: [] }, 'markdown'), /Source warnings/u);
 });
 
+test('Markdown escaping keeps ordinary text readable while neutralising structure', () => {
+  const notes = ['1. First', '- dash', '---', '<b>bold</b>', '`code`', '*em* and _em_', 'a | b', '#hashtag stays', 'Visit #display-name (see docs).', '# heading'];
+  const markdown = buildReport({ inventory, sessions: [], notes }, 'markdown');
+  const lines = markdown.slice(markdown.indexOf('## Human notes')).split('\n').slice(2);
+  assert.deepEqual(lines, [
+    '- 1\\. First',
+    '- \\- dash',
+    '- \\---',
+    '- \\<b\\>bold\\</b\\>',
+    '- \\`code\\`',
+    '- \\*em\\* and \\_em\\_',
+    '- a \\| b',
+    '- #hashtag stays',
+    '- Visit #display-name (see docs).',
+    '- \\# heading'
+  ]);
+  assert.match(markdown, /^- #name: text; name “Display name” from label\\\[for\\\]; required yes\.$/mu);
+});
+
 test('JSON reports omit default and entered form values', () => {
   const report = buildReport({ inventory, sessions: [], notes: [] }, 'json');
   assert.doesNotMatch(report, /defaultEntryPresent/);
