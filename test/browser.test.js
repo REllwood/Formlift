@@ -296,7 +296,7 @@ describe('browser app', { skip }, () => {
       '#placeholder-only': 'Postcode',
       '#title-only': 'Country'
     });
-    const sources = Object.fromEntries(result.fields.map(({ ref, note }) => [ref, /name from ([^;]+)/u.exec(note)?.[1] ?? '']));
+    const sources = Object.fromEntries(result.fields.map(({ ref, note }) => [ref, /name from ([^;]+?)(?:;|\.$)/u.exec(note)?.[1] ?? '']));
     assert.equal(sources['#outside'], 'label[for]');
     assert.equal(sources['#both'], 'aria-labelledby');
     assert.equal(sources['#wrapped'], 'wrapping label');
@@ -445,6 +445,62 @@ describe('browser app', { skip }, () => {
       <label for="c">C</label><input id="c" required autocomplete="off" aria-describedby="c-error"><p id="c-error" aria-live="off">Enter C.</p>
     </form>`);
     assert.deepEqual(result.findings, ['error-announcement at #c']);
+    await page.close();
+  });
+
+  test('the fixture file and the built-in fixture give the same results', async () => {
+    const { page } = await openApp();
+    await page.click('#fixture-button');
+    await page.click('#scan-button');
+    await waitForStatus(page, /Inventory complete/u);
+    const builtIn = await page.$$eval('#findings article h3', (headings) => headings.map((heading) => heading.textContent));
+    await page.setInputFiles('#html-file', fileURLToPath(new URL('../fixtures/account-form.html', import.meta.url)));
+    await waitForStatus(page, /Local fixture loaded/u);
+    await page.click('#scan-button');
+    await waitForStatus(page, /Inventory complete/u);
+    assert.deepEqual(await page.$$eval('#findings article h3', (headings) => headings.map((heading) => heading.textContent)), builtIn);
+    await page.close();
+  });
+
+  test('each rehearsal shows its scenario steps', async () => {
+    const { page } = await openApp();
+    await scan(page, '<form><label for="a">A</label><input id="a" autocomplete="off"></form>');
+    await prepare(page, 'validation');
+    const steps = await page.$$eval('#scenario-coach .coach-steps li', (items) => items.map((item) => item.textContent));
+    assert.equal(steps.length, 4);
+    assert.equal(steps[1], 'Trigger local constraint validation.');
+    await page.close();
+  });
+
+  test('copy notes only mention default entries and sensitive roles when they apply', async () => {
+    const { page } = await openApp();
+    const result = await scan(page, `<form>
+      <label for="filled">Filled</label><input id="filled" value="x" autocomplete="off">
+      <label for="empty">Empty</label><input id="empty" autocomplete="off">
+      <input id="discard" name="discardChanges" type="checkbox" value="yes"><label for="discard">Discard changes</label>
+      <label for="card">Card</label><input id="card" autocomplete="cc-number">
+      <input id="send" type="submit" value="Send">
+    </form>`);
+    const notes = Object.fromEntries(result.fields.map(({ ref, note }) => [ref, note]));
+    assert.equal(notes['#filled'], '#filled; name from label[for]; imported default entry omitted.');
+    assert.equal(notes['#empty'], '#empty; name from label[for].');
+    assert.equal(notes['#discard'], '#discard; name from label[for].');
+    assert.equal(notes['#card'], '#card; name from label[for]; sensitive role.');
+    assert.equal(notes['#send'], '#send; name from value.');
+    await page.close();
+  });
+
+  test('pressing Enter in the copy never submits it, even after rescanning', async () => {
+    const { page, problems } = await openApp();
+    const form = '<form><label for="a">A</label><input id="a" autocomplete="off"><button type="submit">Go</button></form>';
+    await scan(page, form);
+    await scan(page, form);
+    const before = page.url();
+    await page.press('[data-control-ref="#a"]', 'Enter');
+    await page.waitForTimeout(200);
+    assert.equal(page.url(), before);
+    assert.equal(await page.isVisible('#project'), true);
+    assert.deepEqual(problems, []);
     await page.close();
   });
 

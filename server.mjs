@@ -20,6 +20,7 @@ const publicFiles = new Map([
   ['/index.html', resolve(root, 'index.html')],
   ['/src/app.js', resolve(root, 'src/app.js')],
   ['/src/core.js', resolve(root, 'src/core.js')],
+  ['/src/fixture.js', resolve(root, 'src/fixture.js')],
   ['/src/styles.css', resolve(root, 'src/styles.css')]
 ]);
 const baseHeaders = {

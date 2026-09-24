@@ -64,6 +64,7 @@ main { display: grid; grid-template-columns: minmax(19rem, 24rem) 1fr; min-heigh
 .rehearsal-field input[type='checkbox'], .rehearsal-field input[type='radio'] { width: auto; }
 .scenario-coach { border-top: .35rem solid var(--orange); background: #fff8e9; padding: 1rem; margin-top: 1rem; }
 .scenario-coach h3 { font: 700 1.25rem Georgia, serif; margin: 0 0 .5rem; }
+.coach-steps { margin: 0 0 .8rem; padding-left: 1.2rem; font-size: .78rem; line-height: 1.5; }
 .coach-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
 .progress-track { height: .5rem; background: #ddd6c9; margin: .8rem 0; }
 .progress-track span { display: block; height: 100%; background: var(--orange); width: 0; }

@@ -36,7 +36,7 @@ function request(port, path) {
 test('serves only allowlisted files with security headers', async (t) => {
   const server = await startServer(repository);
   t.after(() => server.child.kill());
-  for (const path of ['/', '/index.html', '/src/app.js', '/src/core.js', '/src/styles.css']) {
+  for (const path of ['/', '/index.html', '/src/app.js', '/src/core.js', '/src/fixture.js', '/src/styles.css']) {
     const response = await request(server.port, path);
     assert.equal(response.status, 200, path);
     assert.match(response.headers['content-security-policy'], /connect-src 'none'/u);
