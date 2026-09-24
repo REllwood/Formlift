@@ -169,9 +169,12 @@ function extractInventory(html) {
   if (forms.length === 0) throw new RangeError('No form element was found in the supplied HTML.');
   const form = forms[0];
   const sourceWarnings = forms.length > 1 ? [`${forms.length} forms were found; this prototype inventories the first form only.`] : [];
-  const controls = [...form.querySelectorAll('input, select, textarea, button')].map((control, index) => {
+  // control.form includes controls placed outside the form with a form attribute, and excludes ones owned by another form.
+  const owned = [...parsed.querySelectorAll('input, select, textarea, button')].filter((control) => control.form === form);
+  const controls = owned.map((control, index) => {
     const tag = control.tagName.toLocaleLowerCase('en-AU');
-    const rawType = tag === 'select' ? 'select' : tag === 'textarea' ? 'textarea' : tag === 'button' ? (control.getAttribute('type') || 'submit').toLocaleLowerCase('en-AU') : (control.getAttribute('type') || 'text').toLocaleLowerCase('en-AU');
+    // The type property is normalised by the browser, so unknown input types read as text and unknown button types as submit.
+    const rawType = tag === 'select' || tag === 'textarea' ? tag : control.type;
     const id = control.getAttribute('id') || '';
     const sourceRef = id ? `#${id}` : `${tag}:nth-control(${index + 1})`;
     const { name: accessibleName, source: nameSource } = accessibleNameOf(control, parsed, tag, rawType);
@@ -266,13 +269,15 @@ function safeControl(control, index) {
   } else if (control.type === 'textarea') {
     field = document.createElement('textarea');
     field.rows = 3;
-  } else if (control.element === 'button' || ['submit', 'button', 'reset'].includes(control.type)) {
+  } else if (control.element === 'button' || ['submit', 'button', 'reset', 'image'].includes(control.type)) {
     field = document.createElement('button');
-    field.type = control.type === 'reset' ? 'button' : control.type;
+    field.type = control.type === 'reset' ? 'button' : control.type === 'image' ? 'submit' : control.type;
     field.textContent = control.accessibleName || `Unlabelled ${control.type} button`;
   } else {
     field = document.createElement('input');
-    field.type = ['email', 'tel', 'url', 'number', 'date', 'password', 'checkbox', 'radio', 'file'].includes(control.type) ? control.type : 'text';
+    field.type = control.type;
+    // Range and colour inputs are never empty, so remember their starting value to tell whether someone changed it.
+    if (['range', 'color'].includes(field.type)) field.dataset.baseline = field.value;
   }
   if (control.type === 'radio') field.name = `rehearsal-${control.groupName || control.reference}`;
   field.id = safeId;
@@ -351,6 +356,7 @@ function hasEntry(field) {
   if (field instanceof HTMLInputElement) {
     if (['checkbox', 'radio'].includes(field.type)) return field.checked;
     if (field.type === 'file') return (field.files?.length ?? 0) > 0;
+    if (field.dataset.baseline !== undefined) return field.value !== field.dataset.baseline;
     return field.value !== '';
   }
   if (field instanceof HTMLTextAreaElement || field instanceof HTMLSelectElement) return field.value !== '';

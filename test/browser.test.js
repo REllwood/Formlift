@@ -313,6 +313,50 @@ describe('browser app', { skip }, () => {
     await page.close();
   });
 
+  test('every standard input type is kept and rebuilt with its own type', async () => {
+    const { page, problems } = await openApp();
+    const result = await scan(page, `<form>
+      <label for="volume">Volume</label><input id="volume" type="range">
+      <label for="colour">Colour</label><input id="colour" type="color">
+      <label for="time">Time</label><input id="time" type="time">
+      <label for="when">When</label><input id="when" type="datetime-local">
+      <label for="month">Month</label><input id="month" type="month">
+      <label for="week">Week</label><input id="week" type="week">
+      <label for="find">Find</label><input id="find" type="search">
+      <label for="typo">Typo</label><input id="typo" type="emial">
+      <input id="go" type="image" alt="Go" src="go.png">
+    </form>`);
+    assert.deepEqual(result.fields.map(({ ref, tag, type }) => `${ref} ${tag} ${type}`), [
+      '#volume input range', '#colour input color', '#time input time', '#when input datetime-local', '#month input month',
+      '#week input week', '#find input search', '#typo input text', '#go button submit'
+    ]);
+    assert.deepEqual(result.findings, ['autocomplete at #typo', 'submit-progress at #go']);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  test('controls associated with the form attribute are included and others excluded', async () => {
+    const { page } = await openApp();
+    const result = await scan(page, `<form id="main"><label for="inside">Inside</label><input id="inside" autocomplete="off">
+      <label for="foreign">Foreign</label><input id="foreign" form="other" autocomplete="off"></form>
+      <label for="outside">Outside</label><input id="outside" form="main" autocomplete="off"><form id="other"></form>`);
+    assert.deepEqual(result.fields.map(({ ref }) => ref), ['#inside', '#outside']);
+    await page.close();
+  });
+
+  test('an untouched range is not reported as an entry', async () => {
+    const { page } = await openApp();
+    await scan(page, `<form><label for="volume">Volume</label><input id="volume" type="range">
+      <label for="level">Level</label><input id="level" type="range"><button type="submit">Go</button><p role="status"></p></form>`);
+    await prepare(page, 'slow-submit');
+    await page.$eval('[data-control-ref="#level"]', (field) => { field.value = '80'; });
+    await page.click('text=Begin disclosed three-second delay');
+    await waitForStatus(page, /Slow-submit rehearsal complete/u);
+    const retention = (await timeline(page)).filter((entry) => entry.includes('Retained'));
+    assert.deepEqual(retention, ['instrumented observation: #level — Rehearsal entry remained after the delay. Entry present: yes. Retained: yes.']);
+    await page.close();
+  });
+
   test('reports download as Markdown and JSON', async () => {
     const { page } = await openApp();
     await page.click('#fixture-button');

@@ -1,5 +1,5 @@
 export const MAX_CONTROLS = 120;
-const allowedTypes = new Set(['button', 'checkbox', 'date', 'email', 'file', 'hidden', 'number', 'password', 'radio', 'reset', 'search', 'select', 'submit', 'tel', 'text', 'textarea', 'url']);
+const allowedTypes = new Set(['button', 'checkbox', 'color', 'date', 'datetime-local', 'email', 'file', 'hidden', 'image', 'month', 'number', 'password', 'radio', 'range', 'reset', 'search', 'select', 'submit', 'tel', 'text', 'textarea', 'time', 'url', 'week']);
 const autocompleteRelevant = new Set(['email', 'tel', 'text', 'password']);
 
 function text(value, maximum = 500) {
@@ -120,7 +120,7 @@ export function checkInventory(value) {
       ));
     }
   }
-  const submit = inventory.controls.find((control) => control.type === 'submit');
+  const submit = inventory.controls.find((control) => ['submit', 'image'].includes(control.type));
   if (submit && !inventory.hasLiveRegion && !inventory.hasProgressText) {
     findings.push(finding(
       'submit-progress',
