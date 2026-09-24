@@ -106,15 +106,60 @@ function wait(milliseconds, signal, progress) {
   });
 }
 
+function idList(value) {
+  return (value || '').trim().split(/\s+/u).filter(Boolean);
+}
+
+// Text a screen reader would take from a node. Control values are never read, and hidden descendants are skipped.
+function nodeText(node, root = true) {
+  if (!node) return '';
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent;
+  if (node.nodeType !== Node.ELEMENT_NODE) return '';
+  if (node.matches('input, select, textarea, script, style, template')) return '';
+  if (!root && (node.hasAttribute('hidden') || node.getAttribute('aria-hidden') === 'true')) return '';
+  if (node.matches('img, area')) return ` ${node.getAttribute('alt') || ''} `;
+  return [...node.childNodes].map((child) => nodeText(child, false)).join('');
+}
+
 function controlFreeText(node) {
-  if (!node || node.matches?.('input, select, textarea')) return '';
-  const copy = node.cloneNode(true);
-  copy.querySelectorAll?.('input, select, textarea, button').forEach((control) => control.remove());
-  return copy.textContent?.trim().replace(/\s+/gu, ' ') || '';
+  return nodeText(node).trim().replace(/\s+/gu, ' ');
 }
 
 function referencedText(parsed, references) {
   return references.map((reference) => controlFreeText(parsed.getElementById(reference))).filter(Boolean).join(' ');
+}
+
+function attributeText(element, name) {
+  return (element.getAttribute(name) || '').trim().replace(/\s+/gu, ' ');
+}
+
+// Follows the accessible-name order browsers use: aria-labelledby, aria-label, native labelling, then title and placeholder.
+function accessibleNameOf(control, parsed, tag, type) {
+  const labelledBy = referencedText(parsed, idList(control.getAttribute('aria-labelledby')));
+  if (labelledBy) return { name: labelledBy, source: 'aria-labelledby' };
+  const ariaLabel = attributeText(control, 'aria-label');
+  if (ariaLabel) return { name: ariaLabel, source: 'aria-label' };
+  if (tag === 'input' && ['submit', 'reset', 'button'].includes(type)) {
+    const value = attributeText(control, 'value');
+    if (value) return { name: value, source: 'value' };
+    if (type !== 'button') return { name: type === 'submit' ? 'Submit' : 'Reset', source: 'default button text' };
+  } else if (tag === 'input' && type === 'image') {
+    const alt = attributeText(control, 'alt');
+    if (alt) return { name: alt, source: 'alt' };
+  } else {
+    const labels = [...(control.labels ?? [])];
+    const labelText = labels.map((label) => controlFreeText(label)).filter(Boolean).join(' ');
+    if (labelText) return { name: labelText, source: labels.some((label) => label.contains(control)) ? 'wrapping label' : 'label[for]' };
+    if (tag === 'button') {
+      const content = controlFreeText(control);
+      if (content) return { name: content, source: 'button text' };
+    }
+  }
+  const title = attributeText(control, 'title');
+  if (title) return { name: title, source: 'title' };
+  const placeholder = ['input', 'textarea'].includes(tag) ? attributeText(control, 'placeholder') : '';
+  if (placeholder) return { name: placeholder, source: 'placeholder' };
+  return { name: '', source: '' };
 }
 
 function extractInventory(html) {
@@ -129,46 +174,13 @@ function extractInventory(html) {
     const rawType = tag === 'select' ? 'select' : tag === 'textarea' ? 'textarea' : tag === 'button' ? (control.getAttribute('type') || 'submit').toLocaleLowerCase('en-AU') : (control.getAttribute('type') || 'text').toLocaleLowerCase('en-AU');
     const id = control.getAttribute('id') || '';
     const sourceRef = id ? `#${id}` : `${tag}:nth-control(${index + 1})`;
-    let accessibleName = '';
-    let nameSource = '';
-    const ariaLabel = control.getAttribute('aria-label')?.trim();
-    if (ariaLabel) {
-      accessibleName = ariaLabel;
-      nameSource = 'aria-label';
-    }
-    if (!accessibleName) {
-      const references = (control.getAttribute('aria-labelledby') || '').trim().split(/\s+/u).filter(Boolean);
-      const label = referencedText(parsed, references);
-      if (label) {
-        accessibleName = label;
-        nameSource = 'aria-labelledby';
-      }
-    }
-    if (!accessibleName && id) {
-      const label = [...form.querySelectorAll('label')].find((candidate) => candidate.htmlFor === id);
-      const labelText = controlFreeText(label);
-      if (labelText) {
-        accessibleName = labelText;
-        nameSource = 'label[for]';
-      }
-    }
-    if (!accessibleName) {
-      const wrapping = control.closest('label');
-      const wrappingText = controlFreeText(wrapping);
-      if (wrappingText) {
-        accessibleName = wrappingText;
-        nameSource = 'wrapping label';
-      }
-    }
-    if (!accessibleName && tag === 'button' && control.textContent?.trim()) {
-      accessibleName = control.textContent.trim();
-      nameSource = 'button text';
-    }
-    const describedIds = (control.getAttribute('aria-describedby') || '').trim().split(/\s+/u).filter(Boolean);
+    const { name: accessibleName, source: nameSource } = accessibleNameOf(control, parsed, tag, rawType);
+    const describedIds = idList(control.getAttribute('aria-describedby'));
     const describedNodes = describedIds.map((reference) => parsed.getElementById(reference)).filter(Boolean);
     const group = control.closest('fieldset, [role="radiogroup"]');
-    const groupReferences = (group?.getAttribute('aria-labelledby') || '').trim().split(/\s+/u).filter(Boolean);
-    const groupLabel = controlFreeText(group?.querySelector(':scope > legend')) || group?.getAttribute('aria-label')?.trim() || referencedText(parsed, groupReferences);
+    const groupLabel = group
+      ? referencedText(parsed, idList(group.getAttribute('aria-labelledby'))) || attributeText(group, 'aria-label') || controlFreeText(group.querySelector(':scope > legend'))
+      : '';
     return {
       sourceRef,
       element: tag,
@@ -188,10 +200,9 @@ function extractInventory(html) {
       options: tag === 'select' ? [...control.querySelectorAll('option')].map((option) => controlFreeText(option)).filter(Boolean) : []
     };
   });
-  const titleReference = (form.getAttribute('aria-labelledby') || '').split(/\s+/u).find(Boolean);
   return validateInventory({
     formReference: form.id ? `#${form.id}` : 'form:nth-of-type(1)',
-    title: titleReference ? parsed.getElementById(titleReference)?.textContent : form.getAttribute('aria-label'),
+    title: referencedText(parsed, idList(form.getAttribute('aria-labelledby'))) || attributeText(form, 'aria-label'),
     controls,
     hasLiveRegion: Boolean(form.querySelector('[role="status"], [role="alert"], [aria-live]')),
     hasProgressText: [...form.querySelectorAll('button, p, div, span')].some((node) => /submitting|loading|please wait|in progress/iu.test(node.textContent || '')),
@@ -271,7 +282,7 @@ function safeControl(control, index) {
   if ('autocomplete' in field) field.autocomplete = 'off';
   const reference = document.createElement('span');
   reference.className = 'source-ref';
-  reference.textContent = `${control.sourceRef}; imported default entry omitted${control.sensitive ? '; sensitive role' : ''}.`;
+  reference.textContent = `${control.sourceRef}${control.nameSource ? `; name from ${control.nameSource}` : ''}; imported default entry omitted${control.sensitive ? '; sensitive role' : ''}.`;
   container.append(label, field, reference);
   return container;
 }
