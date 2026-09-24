@@ -166,6 +166,44 @@ describe('browser app', { skip }, () => {
     await page.close();
   });
 
+  test('validation evidence reads checkbox and radio state, not their "on" value', async () => {
+    const { page } = await openApp();
+    await scan(page, `<form><input id="terms" type="checkbox" required><label for="terms">I agree</label>
+      <fieldset><legend>Contact</legend><input id="email" type="radio" name="contact" required><label for="email">Email</label>
+      <input id="phone" type="radio" name="contact" required><label for="phone">Phone</label></fieldset></form>`);
+    await prepare(page, 'validation');
+    await page.click('text=Trigger local validation');
+    const entries = await timeline(page);
+    for (const ref of ['#terms', '#email', '#phone']) {
+      assert.ok(entries.includes(`instrumented observation: ${ref} — Local constraint validation identified this control as invalid. Entry present: no.`), ref);
+    }
+    await page.check('[data-control-ref="#terms"]');
+    await page.check('[data-control-ref="#phone"]');
+    await page.click('text=Record retry and finish');
+    assert.equal((await timeline(page)).at(-1), 'instrumented observation: form — A local retry passed constraint validation.');
+    await page.close();
+  });
+
+  test('slow-submit retention reflects checked state after a simulated failure', async () => {
+    const { page } = await openApp();
+    await scan(page, `<form><fieldset><legend>Contact</legend><input id="email" type="radio" name="contact"><label for="email">Email</label>
+      <input id="phone" type="radio" name="contact"><label for="phone">Phone</label></fieldset>
+      <input id="news" type="checkbox"><label for="news">News</label>
+      <label for="name">Name</label><input id="name" autocomplete="name"><button type="submit">Go</button><p role="status"></p></form>`);
+    await prepare(page, 'slow-submit');
+    await page.check('[data-control-ref="#phone"]');
+    await page.fill('[data-control-ref="#name"]', 'Synthetic');
+    await page.check('#scenario-coach input[type="checkbox"]');
+    await page.click('text=Begin disclosed three-second delay');
+    await waitForStatus(page, /Slow-submit rehearsal complete/u);
+    const retention = (await timeline(page)).filter((entry) => entry.includes('Retained'));
+    assert.deepEqual(retention, [
+      'instrumented observation: #phone — Test-only failed response cleared this rehearsal entry. Entry present: yes. Retained: no.',
+      'instrumented observation: #name — Test-only failed response cleared this rehearsal entry. Entry present: yes. Retained: no.'
+    ]);
+    await page.close();
+  });
+
   test('reports download as Markdown and JSON', async () => {
     const { page } = await openApp();
     await page.click('#fixture-button');

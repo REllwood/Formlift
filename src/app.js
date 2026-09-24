@@ -330,6 +330,21 @@ function renderNotes() {
   });
 }
 
+// Checkbox and radio inputs report value "on" even when unchecked, so entry state depends on the control type.
+function hasEntry(field) {
+  if (field instanceof HTMLInputElement) {
+    if (['checkbox', 'radio'].includes(field.type)) return field.checked;
+    if (field.type === 'file') return (field.files?.length ?? 0) > 0;
+    return field.value !== '';
+  }
+  if (field instanceof HTMLTextAreaElement || field instanceof HTMLSelectElement) return field.value !== '';
+  return false;
+}
+
+function entryFields() {
+  return [...elements.form.querySelectorAll('input[data-control-ref], select[data-control-ref], textarea[data-control-ref]')];
+}
+
 function clearEntries() {
   elements.form.reset();
   for (const field of elements.form.elements) {
@@ -405,7 +420,7 @@ function validationCoach() {
       kind: 'validation',
       controlRef: field.dataset.controlRef,
       outcome: 'Local constraint validation identified this control as invalid.',
-      hasEntry: Boolean(field.value)
+      hasEntry: hasEntry(field)
     }));
     if (fields[0]) {
       fields[0].focus();
@@ -445,15 +460,16 @@ async function slowSubmitCoach() {
   run.addEventListener('click', async () => {
     run.disabled = true;
     const submit = elements.form.querySelector('[type="submit"]');
-    const hadEntries = new Map([...elements.form.elements].filter((field) => field.dataset.controlRef).map((field) => [field.dataset.controlRef, Boolean(field.value || field.checked)]));
+    const hadEntries = new Map(entryFields().map((field) => [field.dataset.controlRef, hasEntry(field)]));
     const completed = await runJob('simulating slow submit on the local reconstruction', async (signal) => {
       record({ kind: 'submit', controlRef: submit?.dataset.controlRef, outcome: `Injected delay began. Supplied structure ${inventory.hasLiveRegion || inventory.hasProgressText ? 'contains' : 'does not contain'} static progress evidence.` });
       await wait(3000, signal, (value) => { bar.style.width = `${Math.round(value * 100)}%`; });
       if (option.checked) clearEntries();
       for (const [controlRef, wasPresent] of hadEntries) {
         if (!wasPresent) continue;
-        const field = [...elements.form.elements].find((candidate) => candidate.dataset.controlRef === controlRef);
-        record({ kind: 'retention', controlRef, outcome: option.checked ? 'Test-only failed response cleared this rehearsal entry.' : 'Rehearsal entry remained after the delay.', hasEntry: true, retained: Boolean(field?.value || field?.checked) });
+        const field = entryFields().find((candidate) => candidate.dataset.controlRef === controlRef);
+        const retained = Boolean(field && hasEntry(field));
+        record({ kind: 'retention', controlRef, outcome: retained ? 'Rehearsal entry remained after the delay.' : 'Test-only failed response cleared this rehearsal entry.', hasEntry: true, retained });
       }
       return true;
     });
