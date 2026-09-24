@@ -126,17 +126,105 @@ describe('browser app', { skip }, () => {
     await page.close();
   });
 
-  test('keyboard rehearsal records a focus stop for each reconstructed control', async () => {
+  describe('keyboard rehearsal', () => {
+    const finish = (page) => page.getByRole('button', { name: 'Finish keyboard run' }).click();
+
+    test('records real Tab stops and treats a radio group as one stop', async () => {
+      const { page, problems } = await openApp();
+      await scan(page, `<form><label for="a">A</label><input id="a" autocomplete="off">
+        <fieldset><legend>Contact</legend><input id="email" type="radio" name="contact"><label for="email">Email</label>
+        <input id="phone" type="radio" name="contact"><label for="phone">Phone</label></fieldset>
+        <button type="submit">Go</button></form>`);
+      await prepare(page, 'keyboard');
+      assert.equal(await page.evaluate(() => document.activeElement.id), 'rehearsal-start');
+      await page.click('[data-control-ref="#a"]');
+      assert.deepEqual(await timeline(page), ['No journey evidence recorded.']);
+      await page.getByRole('button', { name: 'Return to the start of the form' }).click();
+      await page.keyboard.press('Tab');
+      await page.keyboard.press('Tab');
+      await page.keyboard.press('ArrowDown');
+      await page.keyboard.press('Tab');
+      await finish(page);
+      assert.deepEqual(await timeline(page), [
+        'instrumented observation: #a — Tab stop 1: focus reached this control.',
+        'instrumented observation: #email — Tab stop 2: focus reached this control (radio group).',
+        'instrumented observation: button:nth-control(4) — Tab stop 3: focus reached this control.',
+        'instrumented observation: form — Tab reached 3 of 3 expected stops in reading order.'
+      ]);
+      assert.match(await page.textContent('#job-status'), /^Keyboard-path rehearsal complete/u);
+      assert.deepEqual(problems, []);
+      await page.close();
+    });
+
+    test('reports controls that Tab never reaches and notes positive tabindex', async () => {
+      const { page } = await openApp();
+      const result = await scan(page, `<form><label for="a">A</label><input id="a" autocomplete="off">
+        <label for="skip">Skip</label><input id="skip" tabindex="-1" autocomplete="off">
+        <label for="b">B</label><input id="b" autocomplete="off">
+        <label for="jump">Jump</label><input id="jump" tabindex="3" autocomplete="off"></form>`);
+      assert.deepEqual(result.findings, ['tab-order at #skip', 'tab-order at #jump']);
+      assert.equal(result.fields.find(({ ref }) => ref === '#skip').note, '#skip; name from label[for]; tabindex -1.');
+      await prepare(page, 'keyboard');
+      for (let press = 0; press < 3; press += 1) await page.keyboard.press('Tab');
+      await finish(page);
+      const entries = await timeline(page);
+      assert.deepEqual(entries.slice(0, 3), [
+        'instrumented observation: #a — Tab stop 1: focus reached this control.',
+        'instrumented observation: #b — Tab stop 2: focus reached this control.',
+        'instrumented observation: #jump — Tab stop 3: focus reached this control.'
+      ]);
+      assert.ok(entries.includes('instrumented observation: #skip — Never received focus from Tab during this run.'));
+      assert.ok(entries.some((entry) => entry.includes('gives #jump a positive tabindex')));
+      assert.equal(entries.at(-1), 'instrumented observation: form — Tab reached 3 of 4 expected stops in reading order.');
+      await page.close();
+    });
+
+    test('a run with no Tab presses is recorded as incomplete', async () => {
+      const { page } = await openApp();
+      await scan(page, '<form><label for="a">A</label><input id="a" autocomplete="off"></form>');
+      await prepare(page, 'keyboard');
+      await finish(page);
+      assert.equal((await timeline(page)).at(-1), 'instrumented observation: form — No reconstructed control received focus from Tab. Evidence is incomplete.');
+      assert.match(await page.textContent('#job-status'), /stopped with incomplete evidence/u);
+      await page.close();
+    });
+  });
+
+  test('the copy keeps descriptions, error messages and live regions from the source', async () => {
     const { page } = await openApp();
-    await scan(page, '<form><label for="a">A</label><input id="a" autocomplete="off"><label for="b">B</label><input id="b" autocomplete="off"><button type="submit">Go</button></form>');
-    await prepare(page, 'keyboard');
-    while (await page.isVisible('#scenario-coach')) await page.click('#scenario-coach button');
+    await scan(page, `<form>
+      <label for="email">Email</label><input id="email" type="email" required autocomplete="email" aria-describedby="hint" aria-errormessage="error">
+      <p id="hint">We only use this for the test account.</p><p id="error" role="alert"></p>
+    </form>`);
+    const copy = await page.$eval('[data-control-ref="#email"]', (field) => ({
+      describedBy: [...field.getAttribute('aria-describedby').split(' ')].map((id) => ({ text: document.getElementById(id).textContent, live: document.getElementById(id).getAttribute('aria-live') })),
+      errorMessage: [...field.getAttribute('aria-errormessage').split(' ')].map((id) => ({ text: document.getElementById(id).textContent, live: document.getElementById(id).getAttribute('aria-live') }))
+    }));
+    assert.deepEqual(copy, {
+      describedBy: [{ text: 'We only use this for the test account.', live: null }],
+      errorMessage: [{ text: '', live: 'polite' }]
+    });
+    await page.close();
+  });
+
+  test('validation evidence explains each invalid control\'s error relationship and marks it invalid', async () => {
+    const { page } = await openApp();
+    await scan(page, `<form>
+      <label for="a">A</label><input id="a" required autocomplete="off" aria-describedby="a-error"><p id="a-error" role="alert"></p>
+      <label for="b">B</label><input id="b" required autocomplete="off" aria-describedby="b-hint"><p id="b-hint">Hint for B.</p>
+      <label for="c">C</label><input id="c" required autocomplete="off">
+    </form>`);
+    await prepare(page, 'validation');
+    await page.click('text=Trigger local validation');
     const entries = await timeline(page);
-    assert.deepEqual(entries.slice(0, 2), [
-      'instrumented observation: #a — Focus moved to position 1 of 3.',
-      'instrumented observation: #b — Focus moved to position 2 of 3.'
+    assert.deepEqual(entries.slice(0, 3), [
+      'instrumented observation: #a — Local constraint validation identified this control as invalid. Its description in the supplied HTML is in a live region, so a change to it would be announced. Entry present: no.',
+      'instrumented observation: #b — Local constraint validation identified this control as invalid. It has a description in the supplied HTML, but not in a live region, so a change to it would not be announced. Entry present: no.',
+      'instrumented observation: #c — Local constraint validation identified this control as invalid. The supplied HTML gives it no programmatic error description. Entry present: no.'
     ]);
-    assert.match(await page.textContent('#job-status'), /Keyboard-path rehearsal complete/u);
+    assert.equal(await page.getAttribute('[data-control-ref="#a"]', 'aria-invalid'), 'true');
+    await page.click('text=Record retry and finish');
+    assert.equal(await page.getAttribute('[data-control-ref="#a"]', 'aria-invalid'), null);
     await page.close();
   });
 
@@ -150,7 +238,7 @@ describe('browser app', { skip }, () => {
     await page.fill('[data-control-ref="#b"]', 'Synthetic');
     await page.click('text=Record retry and finish');
     const entries = await timeline(page);
-    assert.ok(entries.includes('instrumented observation: #a — Local constraint validation identified this control as invalid. Entry present: no.'));
+    assert.ok(entries.includes('instrumented observation: #a — Local constraint validation identified this control as invalid. The supplied HTML gives it no programmatic error description. Entry present: no.'));
     assert.equal(entries.at(-1), 'instrumented observation: form — A local retry passed constraint validation.');
     assert.equal(await page.inputValue('[data-control-ref="#a"]'), '');
     await page.close();
@@ -176,7 +264,7 @@ describe('browser app', { skip }, () => {
     await page.click('text=Trigger local validation');
     const entries = await timeline(page);
     for (const ref of ['#terms', '#email', '#phone']) {
-      assert.ok(entries.includes(`instrumented observation: ${ref} — Local constraint validation identified this control as invalid. Entry present: no.`), ref);
+      assert.ok(entries.includes(`instrumented observation: ${ref} — Local constraint validation identified this control as invalid. The supplied HTML gives it no programmatic error description. Entry present: no.`), ref);
     }
     await page.check('[data-control-ref="#terms"]');
     await page.check('[data-control-ref="#phone"]');

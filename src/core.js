@@ -37,6 +37,15 @@ export function validateInventory(value) {
       groupLabel: text(candidate.groupLabel, 300),
       sensitive: type === 'password' || Boolean(candidate.sensitive),
       defaultEntryPresent: Boolean(candidate.defaultEntryPresent),
+      descriptions: Array.isArray(candidate.descriptions)
+        ? candidate.descriptions.filter((item) => item && typeof item === 'object').slice(0, 20).map((item) => ({
+          kind: item.kind === 'errormessage' ? 'errormessage' : 'describedby',
+          text: text(item.text, 300),
+          announced: Boolean(item.announced)
+        }))
+        : [],
+      // Browsers treat any negative tabindex like -1.
+      tabIndex: Number.isInteger(candidate.tabIndex) ? Math.min(Math.max(candidate.tabIndex, -1), 32767) : null,
       options: Array.isArray(candidate.options)
         ? candidate.options.map((item) => text(item, 200)).filter(Boolean).slice(0, 50)
         : []
@@ -118,6 +127,22 @@ export function checkInventory(value) {
         'medium'
       ));
     }
+    if (control.tabIndex !== null && control.tabIndex < 0 && !control.disabled) {
+      findings.push(finding(
+        'tab-order',
+        control,
+        'Keyboard users cannot reach this control with Tab.',
+        `${control.sourceRef} has a negative tabindex, which removes it from the Tab order.`,
+        'high'
+      ));
+    } else if (control.tabIndex !== null && control.tabIndex > 0 && !control.disabled) {
+      findings.push(finding(
+        'tab-order',
+        control,
+        'Focus may jump out of reading order, which makes the form hard to follow by keyboard.',
+        `${control.sourceRef} has tabindex="${control.tabIndex}". A positive tabindex moves a control ahead of everything else on the page.`
+      ));
+    }
     if (control.type === 'radio' && (!control.groupName || !control.groupLabel)) {
       findings.push(finding(
         'radio-group',
@@ -145,17 +170,17 @@ export const SCENARIOS = Object.freeze([
   {
     id: 'keyboard',
     name: 'Keyboard path',
-    steps: ['Prepare a value-free rehearsal surface.', 'Move focus through every enabled control in document order.', 'Record focus sequence and any control that cannot be reached.', 'Stop and clear rehearsal entries.']
+    steps: ['Place focus just before the value-free rehearsal surface.', 'Press Tab and Shift+Tab to move through the form yourself.', 'Formlift records each control that receives focus from Tab.', 'Finish to record unreached controls and any change from reading order, then clear entries.']
   },
   {
     id: 'validation',
     name: 'Validation recovery',
-    steps: ['Prepare required controls without entries.', 'Trigger local constraint validation.', 'Observe focus movement and error associations.', 'Enter synthetic test data, retry and clear all entries.']
+    steps: ['Prepare required controls without entries.', 'Trigger local constraint validation.', 'Observe focus movement and each invalid control\'s error relationship from the supplied HTML.', 'Enter synthetic test data, retry and clear all entries.']
   },
   {
     id: 'slow-submit',
     name: 'Slow submit',
-    steps: ['Confirm this is a local or test-only rehearsal.', 'Inject a disclosed three-second local delay.', 'Observe submit disabled state and progress messaging.', 'Optionally simulate a failed response, record retention as booleans and clear all entries.']
+    steps: ['Confirm this is a local or test-only rehearsal.', 'Inject a disclosed three-second local delay.', 'The copy cannot run the source\'s scripts, so check the supplied form for a disabled submit and progress messages.', 'Optionally simulate a failed response, record retention as booleans and clear all entries.']
   }
 ]);
 
@@ -224,8 +249,8 @@ function reportObject(project) {
       formReference: inventory.formReference,
       controlCount: inventory.controls.length,
       sourceWarnings: inventory.sourceWarnings,
-      controls: inventory.controls.map(({ reference, sourceRef, element, type, accessibleName, nameSource, required, disabled, autocomplete, describedBy, errorMessage, errorTextPresent, errorAnnounced, groupName, groupLabel, sensitive }) => ({
-        reference, sourceRef, element, type, accessibleName, nameSource, required, disabled, autocomplete, describedBy, errorMessage, errorTextPresent, errorAnnounced, groupName, groupLabel, sensitive
+      controls: inventory.controls.map(({ reference, sourceRef, element, type, accessibleName, nameSource, required, disabled, autocomplete, describedBy, errorMessage, errorTextPresent, errorAnnounced, groupName, groupLabel, sensitive, tabIndex }) => ({
+        reference, sourceRef, element, type, accessibleName, nameSource, required, disabled, autocomplete, describedBy, errorMessage, errorTextPresent, errorAnnounced, groupName, groupLabel, sensitive, tabIndex
       }))
     },
     findings,

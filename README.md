@@ -16,10 +16,25 @@ Forms lose people in small ways: a field with no label, an error message a scree
 
 - Checks form HTML for accessible names, groups, autocomplete and error relationships
 - Rebuilds the form as a safe local copy to rehearse on
-- Guides keyboard, error-recovery and optional slow-submit runs
+- Guides a real Tab-key run, error recovery and an optional slow submit
 - Records whether values were present or kept, never the values themselves
 - Keeps your observation notes per form in the browser, where you can delete them
 - Exports a Markdown or JSON report with the evidence
+
+## Checks
+
+| Rule | Flags |
+| --- | --- |
+| `accessible-name` | A control with no accessible name |
+| `visible-label` | A control named only by a placeholder or `title` |
+| `error-association` | A required field with no `aria-describedby` or `aria-errormessage` in the supplied HTML |
+| `error-announcement` | Description text that isn't in an alert, status or live region |
+| `autocomplete` | A text, email, phone or password field with no autocomplete token |
+| `radio-group` | A radio button outside a named and labelled group |
+| `tab-order` | A negative tabindex, which Tab skips, or a positive one, which jumps the order |
+| `submit-progress` | A form with no progress text or live status region |
+
+Findings from heuristics say so through their confidence level. Source warnings flag things like a second form, duplicate ids and ARIA references to missing ids.
 
 ## Quick start
 

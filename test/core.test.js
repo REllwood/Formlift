@@ -96,6 +96,32 @@ test('error rules count aria-errormessage and report medium confidence', () => {
   ]);
 });
 
+test('tab-order flags negative and positive tabindex on enabled controls only', () => {
+  const findings = checkInventory({
+    controls: [
+      { sourceRef: '#skip', type: 'text', accessibleName: 'Skip', autocomplete: 'off', tabIndex: -1 },
+      { sourceRef: '#very-negative', type: 'text', accessibleName: 'Very negative', autocomplete: 'off', tabIndex: -5 },
+      { sourceRef: '#jump', type: 'text', accessibleName: 'Jump', autocomplete: 'off', tabIndex: 2 },
+      { sourceRef: '#zero', type: 'text', accessibleName: 'Zero', autocomplete: 'off', tabIndex: 0 },
+      { sourceRef: '#off', type: 'text', accessibleName: 'Off', autocomplete: 'off', tabIndex: -1, disabled: true }
+    ]
+  });
+  assert.deepEqual(findings.map(({ ruleId, sourceRef, severity }) => `${ruleId} ${sourceRef} ${severity}`), [
+    'tab-order #skip high',
+    'tab-order #very-negative high',
+    'tab-order #jump moderate'
+  ]);
+  assert.equal(validateInventory({ controls: [{ tabIndex: -5 }, { tabIndex: 'x' }] }).controls.map(({ tabIndex }) => tabIndex).join(), '-1,');
+});
+
+test('descriptions keep kind, capped text and announcement state', () => {
+  const [control] = validateInventory({
+    controls: [{ descriptions: [{ kind: 'errormessage', text: 'Enter an email.', announced: 1 }, { kind: 'other', text: 'x'.repeat(400) }, null] }]
+  }).controls;
+  assert.deepEqual(control.descriptions.map(({ kind, announced }) => `${kind} ${announced}`), ['errormessage true', 'describedby false']);
+  assert.equal(control.descriptions[1].text.length, 300);
+});
+
 test('scenario evidence records entry state as booleans without entered text', () => {
   let session = createSession('validation', inventory, '2026-07-24T00:00:00Z');
   session = recordEvidence(session, { kind: 'validation', controlRef: '#email', outcome: 'Invalid email format.', hasEntry: true, enteredText: 'person@example.test' });

@@ -25,6 +25,7 @@ const elements = {
   scenarioSelect: document.querySelector('#scenario-select'),
   stopScenario: document.querySelector('#stop-scenario'),
   inventorySummary: document.querySelector('#inventory-summary'),
+  rehearsalStart: document.querySelector('#rehearsal-start'),
   warnings: document.querySelector('#source-warnings'),
   warningList: document.querySelector('#warning-list'),
   form: document.querySelector('#rehearsal-form'),
@@ -46,7 +47,7 @@ let notes = [];
 let noteStorageKey = null;
 let activeSession = null;
 let activeController = null;
-let focusIndex = -1;
+let keyboardRun = null;
 
 function setStatus(message, loading = false) {
   elements.status.textContent = message;
@@ -153,6 +154,10 @@ function accessibleNameOf(control, parsed, tag, type) {
   return { name: '', source: '' };
 }
 
+function isAnnounced(node) {
+  return Boolean(node.closest('[role="alert"], [role="status"], [role="log"], [aria-live]:not([aria-live="off"])'));
+}
+
 const paymentWords = new Set(['card', 'cardholder', 'cardnumber', 'cc', 'creditcard', 'csc', 'cvc', 'cvv', 'iban', 'payment']);
 
 // Splits the name, id and autocomplete into words so that "discard" or "scorecard" don't read as payment fields.
@@ -199,7 +204,11 @@ function extractInventory(html) {
     const errorMessageIds = idList(control.getAttribute('aria-errormessage'));
     warnMissingReferences(sourceRef, 'aria-describedby', describedIds);
     warnMissingReferences(sourceRef, 'aria-errormessage', errorMessageIds);
-    const describedNodes = [...describedIds, ...errorMessageIds].map((reference) => parsed.getElementById(reference)).filter(Boolean);
+    const descriptions = [
+      ...describedIds.map((reference) => ['describedby', parsed.getElementById(reference)]),
+      ...errorMessageIds.map((reference) => ['errormessage', parsed.getElementById(reference)])
+    ].filter(([, node]) => node).map(([kind, node]) => ({ kind, text: controlFreeText(node), announced: isAnnounced(node) }));
+    const tabIndexAttribute = control.getAttribute('tabindex');
     const group = control.closest('fieldset, [role="radiogroup"]');
     const groupLabel = group
       ? referencedText(parsed, idList(group.getAttribute('aria-labelledby'))) || attributeText(group, 'aria-label') || controlFreeText(group.querySelector(':scope > legend'))
@@ -215,8 +224,10 @@ function extractInventory(html) {
       autocomplete: control.getAttribute('autocomplete') || '',
       describedBy: describedIds,
       errorMessage: errorMessageIds,
-      errorTextPresent: describedNodes.some((node) => Boolean(node.textContent?.trim())),
-      errorAnnounced: describedNodes.some((node) => Boolean(node.closest('[role="alert"], [role="status"], [role="log"], [aria-live]:not([aria-live="off"])'))),
+      descriptions,
+      errorTextPresent: descriptions.some(({ text }) => Boolean(text)),
+      errorAnnounced: descriptions.some(({ announced }) => announced),
+      tabIndex: /^\s*-?\d+\s*$/u.test(tabIndexAttribute ?? '') ? Number.parseInt(tabIndexAttribute, 10) : null,
       groupName: control.getAttribute('name') || '',
       groupLabel,
       sensitive: rawType === 'password' || looksLikePayment(control),
@@ -325,14 +336,30 @@ function safeControl(control, index) {
   field.disabled = control.disabled;
   if ('required' in field) field.required = control.required;
   if ('autocomplete' in field) field.autocomplete = 'off';
+  // Keep the source's descriptions and any removal from the Tab order, so keyboard and screen-reader runs meet the
+  // same structure. A positive tabindex is not copied because it would jump ahead of Formlift's own controls.
+  if (control.tabIndex !== null && control.tabIndex < 0) field.tabIndex = -1;
+  const relationships = { describedby: [], errormessage: [] };
+  const descriptions = control.descriptions.map((description, position) => {
+    const node = document.createElement('p');
+    node.id = `${safeId}-description-${position + 1}`;
+    node.className = 'rehearsal-description';
+    node.textContent = description.text;
+    if (description.announced) node.setAttribute('aria-live', 'polite');
+    relationships[description.kind].push(node.id);
+    return node;
+  });
+  if (relationships.describedby.length) field.setAttribute('aria-describedby', relationships.describedby.join(' '));
+  if (relationships.errormessage.length) field.setAttribute('aria-errormessage', relationships.errormessage.join(' '));
   const reference = document.createElement('span');
   reference.className = 'source-ref';
   const notes = [control.sourceRef];
   if (control.nameSource) notes.push(`name from ${control.nameSource}`);
   if (control.defaultEntryPresent) notes.push('imported default entry omitted');
   if (control.sensitive) notes.push('sensitive role');
+  if (control.tabIndex !== null) notes.push(`tabindex ${control.tabIndex}`);
   reference.textContent = `${notes.join('; ')}.`;
-  container.append(label, field, reference);
+  container.append(label, field, ...descriptions, reference);
   return container;
 }
 
@@ -460,6 +487,7 @@ function entryFields() {
 function clearEntries() {
   elements.form.reset();
   for (const field of elements.form.elements) {
+    field.removeAttribute('aria-invalid');
     if (field instanceof HTMLInputElement) {
       if (['checkbox', 'radio'].includes(field.type)) field.checked = false;
       else field.value = '';
@@ -480,9 +508,10 @@ function endSession(incomplete) {
     activeSession = finishSession(activeSession, incomplete);
     sessions = [...sessions.filter(({ id }) => id !== activeSession.id), activeSession];
   }
+  keyboardRun?.stop();
+  keyboardRun = null;
   clearEntries();
   activeSession = null;
-  focusIndex = -1;
   elements.coach.hidden = true;
   elements.stopScenario.hidden = true;
   renderTimeline();
@@ -515,25 +544,92 @@ function coachBase(scenarioId, text) {
   return actions;
 }
 
+// A radio group is a single Tab stop, as it is for keyboard users; arrow keys move within it.
+function tabStopKey(field) {
+  return field.type === 'radio' ? `radio:${field.name}` : field.dataset.controlRef;
+}
+
+// The Tab stops a keyboard user should meet, in reading order.
+function expectedTabStops() {
+  const stops = new Map();
+  for (const field of elements.form.querySelectorAll('[data-control-ref]')) {
+    if (field.disabled || field.type === 'hidden') continue;
+    const key = tabStopKey(field);
+    if (!stops.has(key)) stops.set(key, field.dataset.controlRef);
+  }
+  return stops;
+}
+
+// Records focus that arrives from a real Tab or Shift+Tab press, not from pointer clicks or arrow keys.
+function startKeyboardRun() {
+  const run = { reached: [], tabPending: false };
+  const onKeydown = (event) => { run.tabPending = event.key === 'Tab'; };
+  const onPointer = () => { run.tabPending = false; };
+  const onFocus = (event) => {
+    if (!run.tabPending) return;
+    run.tabPending = false;
+    const field = event.target;
+    if (!(field instanceof HTMLElement) || !elements.form.contains(field) || !field.dataset.controlRef) return;
+    run.reached.push(tabStopKey(field));
+    record({ kind: 'focus', controlRef: field.dataset.controlRef, outcome: `Tab stop ${run.reached.length}: focus reached this control${field.type === 'radio' ? ' (radio group)' : ''}.` });
+  };
+  document.addEventListener('keydown', onKeydown, true);
+  document.addEventListener('pointerdown', onPointer, true);
+  document.addEventListener('focusin', onFocus);
+  run.stop = () => {
+    document.removeEventListener('keydown', onKeydown, true);
+    document.removeEventListener('pointerdown', onPointer, true);
+    document.removeEventListener('focusin', onFocus);
+  };
+  return run;
+}
+
 function keyboardCoach() {
-  const controls = [...elements.form.querySelectorAll('[data-control-ref]')].filter((field) => !field.disabled && field.type !== 'hidden');
-  const actions = coachBase('keyboard', 'Move focus in reconstructed document order. Confirm whether the highlighted control matches the expected next stop.');
-  const next = document.createElement('button');
-  next.type = 'button';
-  next.textContent = 'Move to next control';
-  next.addEventListener('click', () => {
-    focusIndex += 1;
-    if (focusIndex >= controls.length) {
-      record({ kind: 'observation', outcome: `Reached all ${controls.length} enabled reconstructed controls in document order.` });
-      finishActive(false);
-      setStatus('Keyboard-path rehearsal complete. All rehearsal entries were cleared.');
-      return;
+  const actions = coachBase('keyboard', 'Focus is placed just before the rehearsal form. Press Tab to move through it and Shift+Tab to go back. Formlift records each control that receives focus from the keyboard. Tab past the last control, then choose Finish keyboard run.');
+  keyboardRun = startKeyboardRun();
+  const restart = document.createElement('button');
+  restart.type = 'button';
+  restart.textContent = 'Return to the start of the form';
+  restart.addEventListener('click', () => elements.rehearsalStart.focus());
+  const finish = document.createElement('button');
+  finish.type = 'button';
+  finish.className = 'primary';
+  finish.textContent = 'Finish keyboard run';
+  finish.addEventListener('click', () => {
+    const stops = expectedTabStops();
+    const reached = new Set(keyboardRun.reached);
+    const missed = [...stops].filter(([key]) => !reached.has(key));
+    missed.forEach(([, controlRef]) => record({ kind: 'focus', controlRef, outcome: 'Never received focus from Tab during this run.' }));
+    const firstVisits = [...new Set(keyboardRun.reached)].filter((key) => stops.has(key));
+    const readingOrder = [...stops.keys()].filter((key) => reached.has(key));
+    const inOrder = firstVisits.every((key, position) => key === readingOrder[position]);
+    const incomplete = keyboardRun.reached.length === 0;
+    const jumps = inventory.controls.filter(({ tabIndex, disabled }) => tabIndex > 0 && !disabled);
+    if (jumps.length) {
+      record({
+        kind: 'observation',
+        outcome: `The supplied HTML gives ${jumps.map(({ sourceRef }) => sourceRef).join(', ')} a positive tabindex, so in the source page Tab visits ${jumps.length === 1 ? 'it' : 'them'} before everything else. The copy keeps reading order, so compare this run with the source page.`
+      });
     }
-    const field = controls[focusIndex];
-    field.focus();
-    record({ kind: 'focus', controlRef: field.dataset.controlRef, outcome: `Focus moved to position ${focusIndex + 1} of ${controls.length}.` });
+    record({
+      kind: 'observation',
+      outcome: incomplete
+        ? 'No reconstructed control received focus from Tab. Evidence is incomplete.'
+        : `Tab reached ${stops.size - missed.length} of ${stops.size} expected stops${inOrder ? ' in reading order' : ', in an order that differs from reading order'}.`
+    });
+    endSession(incomplete);
+    setStatus(`Keyboard-path rehearsal ${incomplete ? 'stopped with incomplete evidence' : 'complete'}. All rehearsal entries were cleared.`);
   });
-  actions.append(next);
+  actions.append(restart, finish);
+  elements.rehearsalStart.focus();
+}
+
+function errorRelationship(reference) {
+  const control = inventory.controls.find((item) => item.reference === reference);
+  if (!control || control.descriptions.length === 0) return 'The supplied HTML gives it no programmatic error description.';
+  return control.descriptions.some(({ announced }) => announced)
+    ? 'Its description in the supplied HTML is in a live region, so a change to it would be announced.'
+    : 'It has a description in the supplied HTML, but not in a live region, so a change to it would not be announced.';
 }
 
 function validationCoach() {
@@ -542,13 +638,16 @@ function validationCoach() {
   trigger.type = 'button';
   trigger.textContent = 'Trigger local validation';
   trigger.addEventListener('click', () => {
-    const fields = [...elements.form.elements].filter((field) => typeof field.checkValidity === 'function' && !field.checkValidity());
-    fields.forEach((field) => record({
-      kind: 'validation',
-      controlRef: field.dataset.controlRef,
-      outcome: 'Local constraint validation identified this control as invalid.',
-      hasEntry: hasEntry(field)
-    }));
+    const fields = entryFields().filter((field) => !field.checkValidity());
+    fields.forEach((field) => {
+      field.setAttribute('aria-invalid', 'true');
+      record({
+        kind: 'validation',
+        controlRef: field.dataset.controlRef,
+        outcome: `Local constraint validation identified this control as invalid. ${errorRelationship(field.dataset.controlRef)}`,
+        hasEntry: hasEntry(field)
+      });
+    });
     if (fields[0]) {
       fields[0].focus();
       record({ kind: 'focus', controlRef: fields[0].dataset.controlRef, outcome: 'Rehearsal moved focus to the first invalid control; compare this with the supplied form behaviour.' });
@@ -558,7 +657,7 @@ function validationCoach() {
   retry.type = 'button';
   retry.textContent = 'Record retry and finish';
   retry.addEventListener('click', () => {
-    const invalid = [...elements.form.elements].filter((field) => typeof field.checkValidity === 'function' && !field.checkValidity());
+    const invalid = entryFields().filter((field) => !field.checkValidity());
     record({
       kind: 'validation',
       outcome: invalid.length === 0
