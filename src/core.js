@@ -15,7 +15,8 @@ export function validateInventory(value) {
   const controls = value.controls.map((candidate, index) => {
     if (!candidate || typeof candidate !== 'object') throw new TypeError(`Control ${index + 1} is invalid.`);
     const sourceRef = text(candidate.sourceRef, 160) || `control-${index + 1}`;
-    const reference = references.has(sourceRef) ? `${sourceRef}-${index + 1}` : sourceRef;
+    let reference = sourceRef;
+    for (let suffix = index + 1; references.has(reference); suffix += 1) reference = `${sourceRef}-${suffix}`;
     references.add(reference);
     const type = allowedTypes.has(candidate.type) ? candidate.type : 'text';
     return {
@@ -107,7 +108,7 @@ export function checkInventory(value) {
         'medium'
       ));
     }
-    if (autocompleteRelevant.has(control.type) && !control.autocomplete && !['search'].includes(control.type)) {
+    if (autocompleteRelevant.has(control.type) && !control.autocomplete) {
       findings.push(finding(
         'autocomplete',
         control,
@@ -169,7 +170,6 @@ export function createSession(scenarioId, inventoryValue, now = new Date().toISO
     scenarioName: scenario.name,
     startedAt: now,
     status: 'active',
-    currentStep: 0,
     evidence: [],
     inventoryReference: inventory.formReference
   };
@@ -189,7 +189,7 @@ export function recordEvidence(session, candidate) {
     source: candidate.source === 'human' ? 'human observation' : 'instrumented observation',
     recordedAt: text(candidate.recordedAt, 80) || new Date().toISOString()
   };
-  return { ...session, evidence: [...session.evidence, entry], currentStep: Math.min(session.currentStep + 1, 3) };
+  return { ...session, evidence: [...session.evidence, entry] };
 }
 
 export function finishSession(session, incomplete = false, now = new Date().toISOString()) {

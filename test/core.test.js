@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { FIXTURE_HTML } from '../src/fixture.js';
 import {
   buildReport,
   checkInventory,
@@ -39,6 +41,16 @@ test('standard input types are kept and unknown ones become text', () => {
 test('an image input counts as the submit control for submit-progress', () => {
   const findings = checkInventory({ controls: [{ sourceRef: '#go', element: 'input', type: 'image', accessibleName: 'Go' }] });
   assert.deepEqual(findings.map(({ ruleId, sourceRef }) => `${ruleId} ${sourceRef}`), ['submit-progress #go']);
+});
+
+test('duplicate source references always get a unique reference', () => {
+  const result = validateInventory({ controls: ['#a', '#a-3', '#a', '#a'].map((sourceRef) => ({ sourceRef })) });
+  assert.deepEqual(result.controls.map(({ reference }) => reference), ['#a', '#a-3', '#a-4', '#a-5']);
+});
+
+test('the fixture file wraps the same form as the built-in fixture', async () => {
+  const file = await readFile(new URL('../fixtures/account-form.html', import.meta.url), 'utf8');
+  assert.ok(file.includes(FIXTURE_HTML));
 });
 
 test('select labels are retained without option values or selected state', () => {
@@ -89,6 +101,7 @@ test('scenario evidence records entry state as booleans without entered text', (
   session = recordEvidence(session, { kind: 'validation', controlRef: '#email', outcome: 'Invalid email format.', hasEntry: true, enteredText: 'person@example.test' });
   session = recordEvidence(session, { kind: 'retention', controlRef: '#email', outcome: 'Entry remained after failure.', retained: true });
   session = finishSession(session);
+  assert.equal(Object.hasOwn(session, 'currentStep'), false);
   const serialised = JSON.stringify(session);
   assert.doesNotMatch(serialised, /person@example\.test/);
   assert.equal(session.evidence[0].hasEntry, true);

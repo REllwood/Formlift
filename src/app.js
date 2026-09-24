@@ -7,24 +7,10 @@ import {
   recordEvidence,
   validateInventory
 } from './core.js';
+import { FIXTURE_HTML } from './fixture.js';
 
 const legacyNoteStorageKey = 'formlift:notes:v0.1';
 const maximumNotes = 100;
-const fixture = `<form id="synthetic-account" aria-labelledby="account-heading">
-  <h2 id="account-heading">Create a synthetic test account</h2>
-  <label for="display-name">Display name</label>
-  <input id="display-name" name="displayName" required>
-  <input id="email" name="email" type="email" required autocomplete="email" aria-describedby="email-error">
-  <label for="password">Test password</label>
-  <input id="password" name="password" type="password" required autocomplete="new-password">
-  <p id="email-error">Enter a test email address.</p>
-  <div>
-    <span>Contact preference</span>
-    <input id="contact-email" type="radio" name="contact"><label for="contact-email">Email</label>
-    <input id="contact-phone" type="radio" name="contact"><label for="contact-phone">Phone</label>
-  </div>
-  <button type="submit">Create test account</button>
-</form>`;
 
 const elements = {
   source: document.querySelector('#html-source'),
@@ -167,6 +153,28 @@ function accessibleNameOf(control, parsed, tag, type) {
   return { name: '', source: '' };
 }
 
+const paymentWords = new Set(['card', 'cardholder', 'cardnumber', 'cc', 'creditcard', 'csc', 'cvc', 'cvv', 'iban', 'payment']);
+
+// Splits the name, id and autocomplete into words so that "discard" or "scorecard" don't read as payment fields.
+function looksLikePayment(control) {
+  const words = ['name', 'id', 'autocomplete']
+    .map((attribute) => control.getAttribute(attribute) || '')
+    .join(' ')
+    .replace(/([a-z])([A-Z])/gu, '$1 $2')
+    .toLocaleLowerCase('en-AU')
+    .split(/[^a-z0-9]+/u);
+  return words.some((word) => paymentWords.has(word));
+}
+
+// A value attribute is a label on buttons and a submitted token on checkboxes and radios, not an entry.
+function hasDefaultEntry(control, tag, type) {
+  if (tag === 'button' || ['submit', 'reset', 'button', 'image', 'hidden'].includes(type)) return false;
+  if (['checkbox', 'radio'].includes(type)) return control.hasAttribute('checked');
+  if (tag === 'textarea') return control.textContent !== '';
+  if (tag === 'select') return Boolean(control.querySelector('option[selected]'));
+  return control.hasAttribute('value') && control.getAttribute('value') !== '';
+}
+
 function extractInventory(html) {
   if (typeof html !== 'string' || html.length > 250_000) throw new RangeError('Supplied HTML is limited to 250,000 characters.');
   const parsed = new DOMParser().parseFromString(html, 'text/html');
@@ -211,8 +219,8 @@ function extractInventory(html) {
       errorAnnounced: describedNodes.some((node) => Boolean(node.closest('[role="alert"], [role="status"], [role="log"], [aria-live]:not([aria-live="off"])'))),
       groupName: control.getAttribute('name') || '',
       groupLabel,
-      sensitive: rawType === 'password' || /card|payment|cvv|cvc/iu.test(`${control.getAttribute('name') || ''} ${id}`),
-      defaultEntryPresent: control.hasAttribute('value') || control.hasAttribute('checked') || (tag === 'textarea' && Boolean(control.textContent)) || (tag === 'select' && Boolean(control.querySelector('option[selected]'))),
+      sensitive: rawType === 'password' || looksLikePayment(control),
+      defaultEntryPresent: hasDefaultEntry(control, tag, rawType),
       options: tag === 'select' ? [...control.querySelectorAll('option')].map((option) => controlFreeText(option)).filter(Boolean) : []
     };
   });
@@ -319,7 +327,11 @@ function safeControl(control, index) {
   if ('autocomplete' in field) field.autocomplete = 'off';
   const reference = document.createElement('span');
   reference.className = 'source-ref';
-  reference.textContent = `${control.sourceRef}${control.nameSource ? `; name from ${control.nameSource}` : ''}; imported default entry omitted${control.sensitive ? '; sensitive role' : ''}.`;
+  const notes = [control.sourceRef];
+  if (control.nameSource) notes.push(`name from ${control.nameSource}`);
+  if (control.defaultEntryPresent) notes.push('imported default entry omitted');
+  if (control.sensitive) notes.push('sensitive role');
+  reference.textContent = `${notes.join('; ')}.`;
   container.append(label, field, reference);
   return container;
 }
@@ -345,7 +357,6 @@ function renderForm() {
     }
     group.append(safeControl(control, index));
   });
-  elements.form.addEventListener('submit', (event) => event.preventDefault(), { once: false });
 }
 
 function renderTimeline() {
@@ -483,22 +494,30 @@ function record(candidate) {
   renderTimeline();
 }
 
-function coachBase(title, text) {
+function coachBase(scenarioId, text) {
+  const scenario = SCENARIOS.find(({ id }) => id === scenarioId);
   elements.coach.replaceChildren();
   elements.coach.hidden = false;
   const heading = document.createElement('h3');
-  heading.textContent = title;
+  heading.textContent = scenario.name;
   const paragraph = document.createElement('p');
   paragraph.textContent = text;
+  const steps = document.createElement('ol');
+  steps.className = 'coach-steps';
+  for (const step of scenario.steps) {
+    const item = document.createElement('li');
+    item.textContent = step;
+    steps.append(item);
+  }
   const actions = document.createElement('div');
   actions.className = 'coach-actions';
-  elements.coach.append(heading, paragraph, actions);
+  elements.coach.append(heading, paragraph, steps, actions);
   return actions;
 }
 
 function keyboardCoach() {
   const controls = [...elements.form.querySelectorAll('[data-control-ref]')].filter((field) => !field.disabled && field.type !== 'hidden');
-  const actions = coachBase('Keyboard path', 'Move focus in reconstructed document order. Confirm whether the highlighted control matches the expected next stop.');
+  const actions = coachBase('keyboard', 'Move focus in reconstructed document order. Confirm whether the highlighted control matches the expected next stop.');
   const next = document.createElement('button');
   next.type = 'button';
   next.textContent = 'Move to next control';
@@ -518,7 +537,7 @@ function keyboardCoach() {
 }
 
 function validationCoach() {
-  const actions = coachBase('Validation recovery', 'Leave required controls blank, then trigger local constraint validation. Evidence records only whether an entry exists, never its text.');
+  const actions = coachBase('validation', 'Leave required controls blank, then trigger local constraint validation. Evidence records only whether an entry exists, never its text.');
   const trigger = document.createElement('button');
   trigger.type = 'button';
   trigger.textContent = 'Trigger local validation';
@@ -553,7 +572,7 @@ function validationCoach() {
 }
 
 async function slowSubmitCoach() {
-  const actions = coachBase('Slow submit', 'This injects a local three-second delay into the reconstructed form only. It does not contact or alter a source page.');
+  const actions = coachBase('slow-submit', 'This injects a local three-second delay into the reconstructed form only. It does not contact or alter a source page.');
   const optionLabel = document.createElement('label');
   const option = document.createElement('input');
   option.type = 'checkbox';
@@ -644,7 +663,8 @@ function download(content, extension, type) {
   link.href = url;
   link.download = `formlift-report.${extension}`;
   link.click();
-  URL.revokeObjectURL(url);
+  // Revoking straight after click() can cancel the download in some browsers.
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 async function report() {
@@ -688,6 +708,7 @@ async function report() {
   elements.dialog.showModal();
 }
 
+elements.form.addEventListener('submit', (event) => event.preventDefault());
 for (const scenario of SCENARIOS) {
   const option = document.createElement('option');
   option.value = scenario.id;
@@ -695,7 +716,7 @@ for (const scenario of SCENARIOS) {
   elements.scenarioSelect.append(option);
 }
 document.querySelector('#fixture-button').addEventListener('click', () => {
-  elements.source.value = fixture;
+  elements.source.value = FIXTURE_HTML;
   setStatus('Synthetic defect fixture loaded. Choose Scan supplied form.');
   elements.source.focus();
 });
