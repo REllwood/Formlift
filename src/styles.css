@@ -60,6 +60,9 @@ main { display: grid; grid-template-columns: minmax(19rem, 24rem) 1fr; min-heigh
 .rehearsal-field > label { font-size: .85rem; }
 .rehearsal-field input, .rehearsal-field select, .rehearsal-field textarea { max-width: 32rem; }
 .rehearsal-field .source-ref { display: block; color: #66717b; font: .68rem ui-monospace, monospace; margin-top: .25rem; }
+.rehearsal-field .rehearsal-description { margin: .3rem 0 0; max-width: 32rem; color: #4d5a66; font-size: .76rem; line-height: 1.4; }
+.rehearsal-field .rehearsal-description:empty { margin: 0; }
+.rehearsal-field [aria-invalid='true'] { border-color: var(--red); box-shadow: 0 0 0 1px var(--red); }
 .rehearsal-field .unlabelled { color: var(--red); }
 .rehearsal-field input[type='checkbox'], .rehearsal-field input[type='radio'] { width: auto; }
 .scenario-coach { border-top: .35rem solid var(--orange); background: #fff8e9; padding: 1rem; margin-top: 1rem; }
