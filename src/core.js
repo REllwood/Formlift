@@ -234,10 +234,15 @@ function reportObject(project) {
   };
 }
 
+// Escapes characters that start inline Markdown anywhere, but block markers only at the start of a value,
+// which is the only place they take effect because every value is placed on one line.
 function escapeMarkdown(value) {
   return String(value)
-    .replace(/\r\n?|\n/gu, ' ')
-    .replace(/([\\`*_{}\[\]()<>#+.!|>-])/gu, '\\$1');
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .replace(/[\\`*_[\]<>|~&]/gu, '\\$&')
+    .replace(/^(#{1,6}(?=\s|$)|[-+=])/u, '\\$1')
+    .replace(/^(\d{1,9})([.)])/u, '$1\\$2');
 }
 
 export function buildReport(project, format = 'json') {
