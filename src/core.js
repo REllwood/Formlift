@@ -217,6 +217,7 @@ function reportObject(project) {
     inventory: {
       formReference: inventory.formReference,
       controlCount: inventory.controls.length,
+      sourceWarnings: inventory.sourceWarnings,
       controls: inventory.controls.map(({ reference, sourceRef, element, type, accessibleName, nameSource, required, disabled, autocomplete, describedBy, errorTextPresent, errorAnnounced, groupName, groupLabel, sensitive }) => ({
         reference, sourceRef, element, type, accessibleName, nameSource, required, disabled, autocomplete, describedBy, errorTextPresent, errorAnnounced, groupName, groupLabel, sensitive
       }))
@@ -246,10 +247,14 @@ export function buildReport(project, format = 'json') {
     '',
     '## Form inventory',
     '',
-    `${report.inventory.controlCount} supported controls were inventoried. Entered and default values are excluded.`,
+    `${report.inventory.controlCount} supported ${report.inventory.controlCount === 1 ? 'control was' : 'controls were'} inventoried. Entered and default values are excluded.`,
     ''
   ];
   report.inventory.controls.forEach((control) => lines.push(`- ${escapeMarkdown(control.sourceRef)}: ${escapeMarkdown(control.type)}; name ${control.accessibleName ? `“${escapeMarkdown(control.accessibleName)}” from ${escapeMarkdown(control.nameSource || 'available text')}` : 'not found'}; required ${control.required ? 'yes' : 'no'}.`));
+  if (report.inventory.sourceWarnings.length) {
+    lines.push('', '### Source warnings', '');
+    report.inventory.sourceWarnings.forEach((warning) => lines.push(`- ${escapeMarkdown(warning)}`));
+  }
   lines.push('', '## Automated findings', '');
   if (report.findings.length === 0) lines.push('No findings from the focused rule set. Manual and assistive-technology testing is still required.');
   report.findings.forEach((item) => lines.push(`### ${escapeMarkdown(item.ruleId)} at ${escapeMarkdown(item.sourceRef)}`, '', `Severity: ${escapeMarkdown(item.severity)}. Confidence: ${escapeMarkdown(item.confidence)}. Origin: ${escapeMarkdown(item.origin)}.`, '', escapeMarkdown(item.consequence), '', `Evidence: ${escapeMarkdown(item.evidence)}`, ''));
