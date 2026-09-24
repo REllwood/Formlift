@@ -70,6 +70,20 @@ test('controls named only by a placeholder or title get a visible-label finding 
   assert.deepEqual(findings.map(({ ruleId, sourceRef }) => `${ruleId} ${sourceRef}`), ['visible-label #postcode', 'visible-label #country']);
 });
 
+test('error rules count aria-errormessage and report medium confidence', () => {
+  const findings = checkInventory({
+    controls: [
+      { sourceRef: '#linked', type: 'email', accessibleName: 'Email', autocomplete: 'email', required: true, errorMessage: ['linked-error'], errorTextPresent: true, errorAnnounced: true },
+      { sourceRef: '#quiet', type: 'email', accessibleName: 'Email', autocomplete: 'email', required: true, errorMessage: ['quiet-error'], errorTextPresent: true, errorAnnounced: false },
+      { sourceRef: '#bare', type: 'email', accessibleName: 'Email', autocomplete: 'email', required: true }
+    ]
+  });
+  assert.deepEqual(findings.map(({ ruleId, sourceRef, confidence }) => `${ruleId} ${sourceRef} ${confidence}`), [
+    'error-announcement #quiet medium',
+    'error-association #bare medium'
+  ]);
+});
+
 test('scenario evidence records entry state as booleans without entered text', () => {
   let session = createSession('validation', inventory, '2026-07-24T00:00:00Z');
   session = recordEvidence(session, { kind: 'validation', controlRef: '#email', outcome: 'Invalid email format.', hasEntry: true, enteredText: 'person@example.test' });

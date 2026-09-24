@@ -437,6 +437,17 @@ describe('browser app', { skip }, () => {
     await page.close();
   });
 
+  test('aria-errormessage and status regions count as error relationships', async () => {
+    const { page } = await openApp();
+    const result = await scan(page, `<form>
+      <label for="a">A</label><input id="a" required autocomplete="off" aria-errormessage="a-error"><p id="a-error" role="alert">Enter A.</p>
+      <label for="b">B</label><input id="b" required autocomplete="off" aria-describedby="b-error"><div role="status"><p id="b-error">Enter B.</p></div>
+      <label for="c">C</label><input id="c" required autocomplete="off" aria-describedby="c-error"><p id="c-error" aria-live="off">Enter C.</p>
+    </form>`);
+    assert.deepEqual(result.findings, ['error-announcement at #c']);
+    await page.close();
+  });
+
   test('reports download as Markdown and JSON', async () => {
     const { page } = await openApp();
     await page.click('#fixture-button');

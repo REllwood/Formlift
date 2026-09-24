@@ -29,6 +29,7 @@ export function validateInventory(value) {
       disabled: Boolean(candidate.disabled),
       autocomplete: text(candidate.autocomplete, 120),
       describedBy: Array.isArray(candidate.describedBy) ? candidate.describedBy.map((item) => text(item, 160)).filter(Boolean).slice(0, 20) : [],
+      errorMessage: Array.isArray(candidate.errorMessage) ? candidate.errorMessage.map((item) => text(item, 160)).filter(Boolean).slice(0, 20) : [],
       errorTextPresent: Boolean(candidate.errorTextPresent),
       errorAnnounced: Boolean(candidate.errorAnnounced),
       groupName: text(candidate.groupName, 120),
@@ -86,19 +87,24 @@ export function checkInventory(value) {
         `${control.sourceRef} is named only by its ${control.nameSource} attribute.`
       ));
     }
-    if (control.required && control.describedBy.length === 0) {
+    // Static HTML can't show relationships a script adds when an error appears, so these two rules are medium confidence.
+    if (control.required && control.describedBy.length === 0 && control.errorMessage.length === 0) {
       findings.push(finding(
         'error-association',
         control,
         'A validation message may not be programmatically connected to the field it explains.',
-        `${control.sourceRef} is required and has no aria-describedby references.`
+        `${control.sourceRef} is required and the supplied HTML has no aria-describedby or aria-errormessage reference for it. A script may add one when an error appears, so confirm this during the validation rehearsal.`,
+        'moderate',
+        'medium'
       ));
     } else if (control.required && control.errorTextPresent && !control.errorAnnounced) {
       findings.push(finding(
         'error-announcement',
         control,
         'An error may appear visually without being announced when it changes.',
-        `${control.sourceRef} references error text that is not in an alert or live region.`
+        `${control.sourceRef} is described by text that isn't in an alert, status or live region. If that text is where errors appear, a change to it won't be announced.`,
+        'moderate',
+        'medium'
       ));
     }
     if (autocompleteRelevant.has(control.type) && !control.autocomplete && !['search'].includes(control.type)) {
@@ -218,8 +224,8 @@ function reportObject(project) {
       formReference: inventory.formReference,
       controlCount: inventory.controls.length,
       sourceWarnings: inventory.sourceWarnings,
-      controls: inventory.controls.map(({ reference, sourceRef, element, type, accessibleName, nameSource, required, disabled, autocomplete, describedBy, errorTextPresent, errorAnnounced, groupName, groupLabel, sensitive }) => ({
-        reference, sourceRef, element, type, accessibleName, nameSource, required, disabled, autocomplete, describedBy, errorTextPresent, errorAnnounced, groupName, groupLabel, sensitive
+      controls: inventory.controls.map(({ reference, sourceRef, element, type, accessibleName, nameSource, required, disabled, autocomplete, describedBy, errorMessage, errorTextPresent, errorAnnounced, groupName, groupLabel, sensitive }) => ({
+        reference, sourceRef, element, type, accessibleName, nameSource, required, disabled, autocomplete, describedBy, errorMessage, errorTextPresent, errorAnnounced, groupName, groupLabel, sensitive
       }))
     },
     findings,
